@@ -1,0 +1,56 @@
+<!doctype html>
+<title>whisper.wasm engine build check</title>
+<script>
+  var Module = {
+    print: function (text) { log(text); },
+    printErr: function (text) { log("ERR: " + text); },
+    onRuntimeInitialized: function () {
+      document.getElementById("run").disabled = false;
+      log("runtime ready");
+    },
+  };
+  function log(msg) {
+    document.getElementById("log").textContent += msg + "\n";
+    console.log(msg);
+  }
+
+  var instance = null;
+  const kSampleRate = 16000;
+
+  async function loadModel() {
+    const res = await fetch("./dist/models/ggml-base.bin");
+    const buf = new Uint8Array(await res.arrayBuffer());
+    try { Module.FS_unlink("whisper.bin"); } catch (e) {}
+    Module.FS_createDataFile("/", "whisper.bin", buf, true, true);
+    instance = Module.init("whisper.bin");
+    log("init returned instance=" + instance);
+  }
+
+  async function decodeFixture(url) {
+    const res = await fetch(url);
+    const arr = await res.arrayBuffer();
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const decoded = await ctx.decodeAudioData(arr);
+    const offline = new OfflineAudioContext(1, Math.ceil(decoded.duration * kSampleRate), kSampleRate);
+    const src = offline.createBufferSource();
+    src.buffer = decoded;
+    src.connect(offline.destination);
+    src.start(0);
+    const rendered = await offline.startRendering();
+    return rendered.getChannelData(0);
+  }
+
+  // Named runTest, not run: libmain.js (Emscripten, non-modularized) declares
+  // its own global `function run()` for its runtime bootstrap, which would
+  // otherwise collide with and shadow this one.
+  async function runTest() {
+    document.getElementById("run").disabled = true;
+    await loadModel();
+    const audio = await decodeFixture("../fixtures/single-speaker.wav");
+    const ret = Module.full_default(instance, audio, "en", 4, false);
+    log("full_default returned " + ret);
+  }
+</script>
+<script src="./dist/libmain.js"></script>
+<pre id="log"></pre>
+<button id="run" onclick="runTest()" disabled>Run</button>

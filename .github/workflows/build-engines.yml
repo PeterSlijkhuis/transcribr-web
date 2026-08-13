@@ -1,0 +1,157 @@
+# .github/workflows/build-engines.yml
+name: Build engines
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Upload the result to Hugging Face (leave unchecked to just build + test)'
+        type: boolean
+        default: false
+      hf_repo_id:
+        description: 'Hugging Face model repo id, e.g. yourname/transcribr-web-engines'
+        required: true
+      version_label:
+        description: 'Version label for this build (used as the HF commit message and in manifest.json)'
+        required: true
+        default: 'engines-v1'
+
+permissions:
+  contents: read
+
+jobs:
+  build-whisper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache emsdk
+        uses: actions/cache@v4
+        with:
+          path: engines-build/emsdk
+          key: emsdk-4.0.23
+
+      - name: Install emsdk 4.0.23 if not already cached
+        run: |
+          if [ ! -d engines-build/emsdk/upstream ]; then
+            git clone https://github.com/emscripten-core/emsdk.git engines-build/emsdk
+            cd engines-build/emsdk
+            ./emsdk install 4.0.23
+            ./emsdk activate 4.0.23
+          fi
+
+      - name: Cache whisper.cpp checkout
+        uses: actions/cache@v4
+        with:
+          path: engines-build/whisper/src
+          key: whisper-src-4523d0ce373ee4b2176b3251fff29fd4864fcf38
+
+      - name: Build whisper.wasm
+        run: bash engines-build/whisper/build.sh
+
+      - name: Fetch whisper base model (for the test harness and the publish step)
+        run: |
+          mkdir -p engines-build/whisper/dist/models
+          curl -L -o engines-build/whisper/dist/models/ggml-base.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
+
+      - name: Test whisper.wasm
+        run: |
+          cd engines-build/whisper && npm install && npx playwright install --with-deps chromium && cd ../..
+          node engines-build/whisper/test.spec.mjs
+
+      - name: List build output (always -- this is how real filenames get discovered/debugged)
+        if: always()
+        run: ls -la engines-build/whisper/dist/ || true
+
+      - name: Upload whisper dist as a workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-dist
+          path: engines-build/whisper/dist/
+          if-no-files-found: warn
+
+  build-sherpa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache emsdk
+        uses: actions/cache@v4
+        with:
+          path: engines-build/emsdk
+          key: emsdk-4.0.23
+
+      - name: Install emsdk 4.0.23 if not already cached
+        run: |
+          if [ ! -d engines-build/emsdk/upstream ]; then
+            git clone https://github.com/emscripten-core/emsdk.git engines-build/emsdk
+            cd engines-build/emsdk
+            ./emsdk install 4.0.23
+            ./emsdk activate 4.0.23
+          fi
+
+      - name: Cache sherpa-onnx checkout
+        uses: actions/cache@v4
+        with:
+          path: engines-build/sherpa/src
+          key: sherpa-src-c29b1838c843f92c7ad58eb81e174ccb4c3508cf
+
+      - name: Build sherpa-onnx wasm diarization
+        run: bash engines-build/sherpa/build.sh
+
+      - name: Test sherpa-onnx wasm
+        run: |
+          cd engines-build/sherpa && npm install && npx playwright install --with-deps chromium && cd ../..
+          node engines-build/sherpa/test.spec.mjs
+
+      - name: List build output (always -- this is how real filenames get discovered/debugged)
+        if: always()
+        run: ls -la engines-build/sherpa/dist/ || true
+
+      - name: Upload sherpa dist as a workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sherpa-dist
+          path: engines-build/sherpa/dist/
+          if-no-files-found: warn
+
+  publish:
+    needs: [build-whisper, build-sherpa]
+    if: ${{ github.event.inputs.publish == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: whisper-dist
+          path: staged/whisper
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sherpa-dist
+          path: staged/sherpa
+
+      - name: Flatten into publish-ready filenames
+        run: |
+          mkdir -p publish
+          cp staged/whisper/libmain.js publish/whisper-libmain.js
+          cp staged/whisper/libmain.wasm publish/whisper-libmain.wasm
+          cp staged/whisper/models/ggml-base.bin publish/whisper-ggml-base.bin
+          cp staged/sherpa/*.js publish/
+          cp staged/sherpa/*.wasm publish/
+          cp staged/sherpa/*.data publish/
+          ls -la publish
+
+      - name: Install huggingface_hub CLI
+        run: pip install -U "huggingface_hub[cli]"
+
+      - name: Upload to Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          huggingface-cli upload "${{ github.event.inputs.hf_repo_id }}" publish . \
+            --repo-type model \
+            --commit-message "${{ github.event.inputs.version_label }}"

@@ -21,10 +21,16 @@ source ../emsdk/emsdk_env.sh
 ASSETS_DIR=src/wasm/speaker-diarization/assets
 mkdir -p "$ASSETS_DIR"
 if [ ! -f "$ASSETS_DIR/segmentation.onnx" ]; then
-  curl -L -o /tmp/segmentation.tar.bz2 https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2
-  tar -xjf /tmp/segmentation.tar.bz2 -C /tmp
-  find /tmp -iname 'model.onnx' -path '*segmentation*' -exec cp {} "$ASSETS_DIR/segmentation.onnx" \;
-  rm -f /tmp/segmentation.tar.bz2
+  # Extract into a dedicated scratch dir, not directly under /tmp -- a
+  # recursive `find /tmp` walks unrelated root-owned systemd-private-*
+  # dirs that live there on ubuntu-latest runners, and `find`'s resulting
+  # non-zero exit (permission denied) kills the script under `set -e`
+  # even though the model file itself was found.
+  SEG_SCRATCH=$(mktemp -d)
+  curl -L -o "$SEG_SCRATCH/segmentation.tar.bz2" https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2
+  tar -xjf "$SEG_SCRATCH/segmentation.tar.bz2" -C "$SEG_SCRATCH"
+  find "$SEG_SCRATCH" -iname 'model.onnx' -path '*segmentation*' -exec cp {} "$ASSETS_DIR/segmentation.onnx" \;
+  rm -rf "$SEG_SCRATCH"
 fi
 if [ ! -f "$ASSETS_DIR/embedding.onnx" ]; then
   curl -L -o "$ASSETS_DIR/embedding.onnx" https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/nemo_en_titanet_large.onnx

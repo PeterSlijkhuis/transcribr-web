@@ -145,8 +145,8 @@ jobs:
           cp staged/sherpa/*.data publish/
           ls -la publish
 
-      - name: Install huggingface_hub CLI
-        run: pip install -U "huggingface_hub[cli]"
+      - name: Install huggingface_hub (pinned -- provides the "hf" CLI)
+        run: pip install "huggingface_hub[cli]==1.27.0"
 
       - name: Upload to Hugging Face
         env:

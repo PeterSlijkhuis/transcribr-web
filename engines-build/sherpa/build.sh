@@ -30,15 +30,17 @@ if [ ! -f "$ASSETS_DIR/segmentation.onnx" ]; then
   curl -L -o "$SEG_SCRATCH/segmentation.tar.bz2" https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2
   tar -xjf "$SEG_SCRATCH/segmentation.tar.bz2" -C "$SEG_SCRATCH"
   find "$SEG_SCRATCH" -iname 'model.onnx' -path '*segmentation*' -exec cp {} "$ASSETS_DIR/segmentation.onnx" \;
-  rm -rf "$SEG_SCRATCH"
+  # Cleanup is deferred to below the failure check -- if the copy didn't
+  # land, we want $SEG_SCRATCH to still be on disk for the error message.
 fi
 if [ ! -f "$ASSETS_DIR/embedding.onnx" ]; then
   curl -L -o "$ASSETS_DIR/embedding.onnx" https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/nemo_en_titanet_large.onnx
 fi
 if [ ! -f "$ASSETS_DIR/segmentation.onnx" ]; then
-  echo "error: segmentation.onnx missing after extracting the archive -- inspect /tmp for the real internal path and adjust the 'find' command above" >&2
+  echo "error: segmentation.onnx missing after extracting the archive -- inspect ${SEG_SCRATCH:-the scratch dir (already cleaned up; segmentation.onnx must have already existed)} for the real internal path and adjust the 'find' command above" >&2
   exit 1
 fi
+[ -n "${SEG_SCRATCH:-}" ] && rm -rf "$SEG_SCRATCH"
 
 cd src
 ./build-wasm-simd-speaker-diarization.sh

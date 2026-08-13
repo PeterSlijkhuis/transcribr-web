@@ -7,9 +7,13 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+PIN=4523d0ce373ee4b2176b3251fff29fd4864fcf38
 if [ ! -d src ]; then
   git clone https://github.com/ggml-org/whisper.cpp src
-  git -C src checkout 4523d0ce373ee4b2176b3251fff29fd4864fcf38
+fi
+if [ "$(git -C src rev-parse HEAD)" != "$PIN" ]; then
+  git -C src fetch --all
+  git -C src checkout "$PIN"
 fi
 
 source ../emsdk/emsdk_env.sh

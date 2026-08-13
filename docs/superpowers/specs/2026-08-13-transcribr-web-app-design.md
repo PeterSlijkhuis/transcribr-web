@@ -1,4 +1,4 @@
-# Transcribr web app: design
+# transcribr-web: design
 
 Date: 2026-08-13
 
@@ -68,7 +68,7 @@ working, `index.html` can be opened and edited directly, and there's nothing
 to debug when a bundler breaks.
 
 ```
-Transcribr/
+transcribr-web/
   index.html, styles.css, app.js      # main thread: UI, file queue, job rendering, export buttons
   worker.js                            # Web Worker: owns both engines, runs one job at a time
   engines/whisper.js                   # thin wrapper matching API.md's whisper.cpp contract exactly
@@ -167,7 +167,7 @@ and vendored source respectively.
 
 The whisper `base` model, sherpa's segmentation+embedding models, and both
 engines' compiled wasm/js/`.data` output are published as assets on a
-GitHub Release in the Transcribr repo (not committed to git — both the
+GitHub Release in the transcribr-web repo (not committed to git — both the
 model and the sherpa `.data` file exceed GitHub's 100MB per-file limit).
 `engines/manifest.json` hardcodes that release's asset URLs and a version
 string; bumping the engine/model version is: re-run `build-engines.yml`
@@ -198,7 +198,7 @@ Two independent workflows:
   `engines-build/`) to GitHub Pages via `actions/deploy-pages`.
 
 **Prerequisite:** GitHub Pages and Releases both require an actual GitHub
-repository. `Transcribr/` isn't a git repo yet — creating it locally (this
+repository. `transcribr-web/` isn't a git repo yet — creating it locally (this
 spec's own commit) is safe and local-only; creating the *remote* GitHub
 repo and pushing is a separate, visible action to confirm explicitly during
 implementation, not assumed here.

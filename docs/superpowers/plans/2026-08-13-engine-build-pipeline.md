@@ -2,11 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A GitHub Actions workflow that builds whisper.cpp and sherpa-onnx to WebAssembly from source (via a pinned Emscripten SDK), verifies each build against a real audio fixture in a real browser, and publishes the result as assets on a GitHub Release — so the `transcribr-web` app (a separate plan) always has a tested, versioned, downloadable engine bundle to fetch at runtime, and updating the engine/model later is "push a tag, watch Actions run," not a manual local rebuild.
+**Goal:** A GitHub Actions workflow that builds whisper.cpp and sherpa-onnx to WebAssembly from source (via a pinned Emscripten SDK), verifies each build against a real audio fixture in a real browser, and publishes the result to a Hugging Face model repo — so the `transcribr-web` app (a separate plan) always has a tested, versioned, downloadable engine bundle to fetch at runtime, and updating the engine/model later is "push a tag, watch Actions run," not a manual local rebuild.
 
-**Architecture:** Two vendored upstream C++ projects (whisper.cpp, sherpa-onnx), each built to WASM via their own official build scripts (not reinvented) on a pinned Emscripten SDK, each wrapped in a minimal hand-written HTML/JS test harness, each verified by a Playwright script that loads the harness in real Chromium and asserts output against a known fixture. This plan's code is adapted from an already-verified spike of the exact same build (`Wisprflow/web/engines/` in the sibling `Wisprflow` project, whose `API.md` documents the confirmed JS API both engines expose) — retargeted from "build once locally, keep output in a gitignored `dist/`" to "build in CI on every tagged run, publish the output to a GitHub Release."
+**Architecture:** Two vendored upstream C++ projects (whisper.cpp, sherpa-onnx), each built to WASM via their own official build scripts (not reinvented) on a pinned Emscripten SDK, each wrapped in a minimal hand-written HTML/JS test harness, each verified by a Playwright script that loads the harness in real Chromium and asserts output against a known fixture. This plan's code is adapted from an already-verified spike of the exact same build (`Wisprflow/web/engines/` in the sibling `Wisprflow` project, whose `API.md` documents the confirmed JS API both engines expose) — retargeted from "build once locally, keep output in a gitignored `dist/`" to "build in CI on every tagged run, publish the output to Hugging Face."
 
-**Tech Stack:** Emscripten SDK 4.0.23 (pinned), whisper.cpp (`ggml-org/whisper.cpp`, pinned commit `4523d0ce373ee4b2176b3251fff29fd4864fcf38`), sherpa-onnx (`k2-fsa/sherpa-onnx`, pinned commit `c29b1838c843f92c7ad58eb81e174ccb4c3508cf`), Playwright (Node, Chromium), GitHub Actions (`ubuntu-latest`), the `gh` CLI (preinstalled on GitHub-hosted runners) for publishing releases.
+**Why Hugging Face, not a GitHub Release:** verified empirically (`curl -I` against a real GitHub release asset, both the `github.com` redirect and the `release-assets.githubusercontent.com` target) — GitHub release assets send no `Access-Control-Allow-Origin` header, so a browser `fetch()` from the deployed app's origin would be blocked from reading the bytes at all. Hugging Face's file CDN does send `Access-Control-Allow-Origin: *` (verified the same way against `huggingface.co/ggerganov/whisper.cpp`) and is already the pattern this codebase uses for the Whisper model in the native app's `Tools.fs`.
+
+**Tech Stack:** Emscripten SDK 4.0.23 (pinned), whisper.cpp (`ggml-org/whisper.cpp`, pinned commit `4523d0ce373ee4b2176b3251fff29fd4864fcf38`), sherpa-onnx (`k2-fsa/sherpa-onnx`, pinned commit `c29b1838c843f92c7ad58eb81e174ccb4c3508cf`), Playwright (Node, Chromium), GitHub Actions (`ubuntu-latest`), the `gh` CLI (preinstalled on GitHub-hosted runners) for repo/tag operations, the `huggingface_hub` CLI (`pip install`) for publishing to the Hugging Face model repo.
 
 ## Global Constraints
 
@@ -14,7 +16,10 @@
 - Large, regenerable artifacts (vendored upstream source trees, the emsdk install, build output directories) are gitignored. Small deterministic fixtures (a few hundred KB of synthesized WAV) and all build/test scripts are committed.
 - This plan only creates files under `engines-build/`, `.github/workflows/build-engines.yml`, and the repo-root `NOTICE.md`. It does not touch anything the sibling `transcribr-web-app` plan owns.
 - The actual multi-GB Emscripten C++ compile is **not** run locally in this plan's steps — it is verified for real on GitHub Actions' Linux runner in Task 5. Attempting it locally on this Windows dev machine would hit the same class of environment-specific problems the original spike had to work around (no native `make`, a space in the repo's parent path breaking sherpa's unquoted `--preload-file` flag, Windows `MAX_PATH` limits on sherpa's deeply-nested checkout) for no lasting benefit, since production verification happens on the CI runner regardless. Tasks 3 and 4 write and commit the build/test scripts; Task 5 is where they are actually executed and verified.
-- **Prerequisite before Task 5 can run for real:** a GitHub repository named `transcribr-web` under the user's account, with this local repo pushed to it as `origin`. Creating that remote repo and pushing are visible, account-level actions — confirm with the user before running `gh repo create` / `git push`, do not do it silently.
+- **Prerequisite before Task 5 can run for real:** a GitHub repository named `transcribr-web` under the user's account, with this local repo pushed to it as `origin` — created up front (before Task 1), not deferred to Task 5, so that task work happens on a feature branch merged back to a `master` that already has all four earlier tasks' code before anything gets tagged. Creating that remote repo and pushing are visible, account-level actions — confirmed with the user, not done silently.
+- **Prerequisite before Task 5 can run for real:** a Hugging Face account and a model repo to publish to, plus a write-scoped access token stored as this GitHub repo's `HF_TOKEN` Actions secret. Confirmed with the user, not assumed.
+- Task 5's workflow is iterated on via `workflow_dispatch` in a build-and-test-only mode (no publish) while getting it working, since the ported build scripts (Linux-targeted, not the exact Windows-workaround-laden scripts the original spike verified) are themselves unverified on first run — expect several failed runs, not one clean pass. Only a run launched with `publish: true` actually uploads to Hugging Face. This avoids littering the Hugging Face repo with broken half-builds while debugging.
+- CI runs are watched via a backgrounded `gh run watch` (or polling `gh run view --json status,conclusion`), never a blocking foreground wait — a single run's whisper+sherpa compile can plausibly run well past a normal command timeout.
 
 ---
 
@@ -654,14 +659,16 @@ git commit -m "Add sherpa-onnx wasm diarization build script and test harness"
 
 ---
 
-### Task 5: CI workflow — build, verify, and publish to a GitHub Release
+### Task 5: CI workflow — build, verify, and publish to Hugging Face
 
 **Files:**
 - Create: `.github/workflows/build-engines.yml`
 
 **Interfaces:**
-- Consumes: everything from Tasks 1-4.
-- Produces: a GitHub Release (tag `engines-v1` for the first run) with these assets uploaded: `whisper-libmain.js`, `whisper-libmain.wasm`, `whisper-ggml-base.bin`, plus sherpa's compiled `.js`/`.wasm`/`.data` output copied under their built-in filenames. **The exact sherpa filenames are only known once this workflow actually runs** — record them (Step 4 below) for the `transcribr-web-app` plan's `engines/manifest.json` to reference.
+- Consumes: everything from Tasks 1-4; the `HF_TOKEN` repo secret and a Hugging Face model repo id (both prerequisites, see Global Constraints).
+- Produces: files uploaded to the Hugging Face model repo's `main` branch: `whisper-libmain.js`, `whisper-libmain.wasm`, `whisper-ggml-base.bin`, plus sherpa's compiled `.js`/`.wasm`/`.data` output under their built-in filenames. **The exact sherpa filenames are only known once this workflow actually runs** — record them (Step 3 below) for the `transcribr-web-app` plan's `engines/manifest.json` to reference.
+
+Split into three jobs so a sherpa failure doesn't waste a redone whisper build (they're independent), each engine's upstream checkout and the shared emsdk install are cached keyed on their pinned versions (both are unverified on this exact Linux CI path — the original spike's scripts had Windows-only workarounds this plan's Tasks 3-4 deliberately dropped — so expect a few debugging iterations, and caching keeps each one cheap), and publishing only happens when explicitly requested so a debugging run never uploads a broken partial build.
 
 - [ ] **Step 1: Write the workflow**
 
@@ -670,46 +677,55 @@ git commit -m "Add sherpa-onnx wasm diarization build script and test harness"
 name: Build engines
 
 on:
-  push:
-    tags:
-      - 'engines-v*'
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'Release tag to publish to (e.g. engines-v1)'
+      publish:
+        description: 'Upload the result to Hugging Face (leave unchecked to just build + test)'
+        type: boolean
+        default: false
+      hf_repo_id:
+        description: 'Hugging Face model repo id, e.g. yourname/transcribr-web-engines'
+        required: true
+      version_label:
+        description: 'Version label for this build (used as the HF commit message and in manifest.json)'
         required: true
         default: 'engines-v1'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build:
+  build-whisper:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
-      - name: Determine release tag
-        id: tag
+      - name: Cache emsdk
+        uses: actions/cache@v4
+        with:
+          path: engines-build/emsdk
+          key: emsdk-4.0.23
+
+      - name: Install emsdk 4.0.23 if not already cached
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          if [ ! -d engines-build/emsdk/upstream ]; then
+            git clone https://github.com/emscripten-core/emsdk.git engines-build/emsdk
+            cd engines-build/emsdk
+            ./emsdk install 4.0.23
+            ./emsdk activate 4.0.23
           fi
 
-      - name: Install emsdk 4.0.23
-        run: |
-          git clone https://github.com/emscripten-core/emsdk.git engines-build/emsdk
-          cd engines-build/emsdk
-          ./emsdk install 4.0.23
-          ./emsdk activate 4.0.23
+      - name: Cache whisper.cpp checkout
+        uses: actions/cache@v4
+        with:
+          path: engines-build/whisper/src
+          key: whisper-src-4523d0ce373ee4b2176b3251fff29fd4864fcf38
 
       - name: Build whisper.wasm
         run: bash engines-build/whisper/build.sh
 
-      - name: Fetch whisper base model (for the test harness and the release)
+      - name: Fetch whisper base model (for the test harness and the publish step)
         run: |
           mkdir -p engines-build/whisper/dist/models
           curl -L -o engines-build/whisper/dist/models/ggml-base.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
@@ -719,6 +735,45 @@ jobs:
           cd engines-build/whisper && npm install && npx playwright install --with-deps chromium && cd ../..
           node engines-build/whisper/test.spec.mjs
 
+      - name: List build output (always -- this is how real filenames get discovered/debugged)
+        if: always()
+        run: ls -la engines-build/whisper/dist/ || true
+
+      - name: Upload whisper dist as a workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-dist
+          path: engines-build/whisper/dist/
+          if-no-files-found: warn
+
+  build-sherpa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache emsdk
+        uses: actions/cache@v4
+        with:
+          path: engines-build/emsdk
+          key: emsdk-4.0.23
+
+      - name: Install emsdk 4.0.23 if not already cached
+        run: |
+          if [ ! -d engines-build/emsdk/upstream ]; then
+            git clone https://github.com/emscripten-core/emsdk.git engines-build/emsdk
+            cd engines-build/emsdk
+            ./emsdk install 4.0.23
+            ./emsdk activate 4.0.23
+          fi
+
+      - name: Cache sherpa-onnx checkout
+        uses: actions/cache@v4
+        with:
+          path: engines-build/sherpa/src
+          key: sherpa-src-c29b1838c843f92c7ad58eb81e174ccb4c3508cf
+
       - name: Build sherpa-onnx wasm diarization
         run: bash engines-build/sherpa/build.sh
 
@@ -727,24 +782,54 @@ jobs:
           cd engines-build/sherpa && npm install && npx playwright install --with-deps chromium && cd ../..
           node engines-build/sherpa/test.spec.mjs
 
-      - name: Package release assets
-        run: |
-          mkdir -p release-assets
-          cp engines-build/whisper/dist/libmain.js release-assets/whisper-libmain.js
-          cp engines-build/whisper/dist/libmain.wasm release-assets/whisper-libmain.wasm
-          cp engines-build/whisper/dist/models/ggml-base.bin release-assets/whisper-ggml-base.bin
-          cp engines-build/sherpa/dist/*.js release-assets/
-          cp engines-build/sherpa/dist/*.wasm release-assets/
-          cp engines-build/sherpa/dist/*.data release-assets/
-          ls -la release-assets
+      - name: List build output (always -- this is how real filenames get discovered/debugged)
+        if: always()
+        run: ls -la engines-build/sherpa/dist/ || true
 
-      - name: Create or update the release with these assets
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload sherpa dist as a workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sherpa-dist
+          path: engines-build/sherpa/dist/
+          if-no-files-found: warn
+
+  publish:
+    needs: [build-whisper, build-sherpa]
+    if: ${{ github.event.inputs.publish == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: whisper-dist
+          path: staged/whisper
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sherpa-dist
+          path: staged/sherpa
+
+      - name: Flatten into publish-ready filenames
         run: |
-          TAG="${{ steps.tag.outputs.tag }}"
-          gh release create "$TAG" release-assets/* --title "$TAG" --generate-notes || \
-          gh release upload "$TAG" release-assets/* --clobber
+          mkdir -p publish
+          cp staged/whisper/libmain.js publish/whisper-libmain.js
+          cp staged/whisper/libmain.wasm publish/whisper-libmain.wasm
+          cp staged/whisper/models/ggml-base.bin publish/whisper-ggml-base.bin
+          cp staged/sherpa/*.js publish/
+          cp staged/sherpa/*.wasm publish/
+          cp staged/sherpa/*.data publish/
+          ls -la publish
+
+      - name: Install huggingface_hub CLI
+        run: pip install -U "huggingface_hub[cli]"
+
+      - name: Upload to Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          huggingface-cli upload "${{ github.event.inputs.hf_repo_id }}" publish . \
+            --repo-type model \
+            --commit-message "${{ github.event.inputs.version_label }}"
 ```
 
 - [ ] **Step 2: Commit**
@@ -754,29 +839,39 @@ git add .github/workflows/build-engines.yml
 git commit -m "Add CI workflow to build, verify, and publish the WASM engines"
 ```
 
-- [ ] **Step 3: Confirm the remote repo with the user, then push**
+- [ ] **Step 3: Push this task's branch and run a build-and-test-only dispatch**
 
-Per Global Constraints, creating the remote GitHub repo and pushing are visible account-level actions — confirm with the user first. Once confirmed:
-
-```bash
-gh repo create transcribr-web --public --source=. --remote=origin
-git push -u origin master
-```
-
-- [ ] **Step 4: Trigger the workflow for real and verify**
+The remote repo and `HF_TOKEN` secret already exist per this plan's prerequisites (set up before Task 1). Push the current branch, then dispatch with `publish` left `false` — this is expected to take a few iterations to go green, since the ported Linux build scripts are unverified on first run:
 
 ```bash
-git tag engines-v1
-git push origin engines-v1
-gh run watch
+git push -u origin HEAD
+gh workflow run build-engines.yml --ref "$(git branch --show-current)" -f publish=false -f hf_repo_id=placeholder -f version_label=debug
 ```
 
-Expected: the run completes with a green checkmark (this includes two full C++-to-WASM compiles plus two real Playwright checks in a real browser, so allow real time — check progress with `gh run watch` rather than assuming a fixed duration). If either `test.spec.mjs` step fails, the job log shows exactly which assertion failed (missing expected word, or wrong speaker count) — that means the build itself is fine but something about the fixture/config needs adjusting, not that the pipeline is broken.
-
-Once green:
+Watch it in the background rather than blocking on it (a full whisper+sherpa compile can run well past a normal command timeout):
 
 ```bash
-gh release view engines-v1 --json assets --jq '.assets[].name'
+gh run list --workflow=build-engines.yml --limit 1 --json databaseId --jq '.[0].databaseId'
+# then, backgrounded:
+gh run watch <run-id> --exit-status
 ```
 
-Expected: lists `whisper-libmain.js`, `whisper-libmain.wasm`, `whisper-ggml-base.bin`, and sherpa's `.js`/`.wasm`/`.data` files under their real built-in names. **Record this exact list and their download URLs** (`gh release view engines-v1 --json assets --jq '.assets[].url'`) — the `transcribr-web-app` plan's Task 1 (`engines/manifest.json`) needs them verbatim.
+Expected: eventually a green run. If `build-whisper` or `build-sherpa` fails, the job log shows exactly which step and, thanks to the always-on `ls -la .../dist/` and artifact upload, what (if anything) the build actually produced — use that to fix `build.sh`/`test.spec.mjs` and re-dispatch. This loop is the actual verification for Tasks 3-4's scripts (which had no local run step by design — see Global Constraints).
+
+- [ ] **Step 4: Publish for real and record the exact asset list**
+
+Once a build-and-test-only run is green, dispatch again with `publish=true` and the real Hugging Face repo id:
+
+```bash
+gh workflow run build-engines.yml --ref "$(git branch --show-current)" -f publish=true -f hf_repo_id=<your-real-hf-repo-id> -f version_label=engines-v1
+```
+
+Once that run is green, confirm the files landed and record their exact names and URLs — the `transcribr-web-app` plan's Task 1 (`engines/manifest.json`) needs them verbatim:
+
+```bash
+pip install -U "huggingface_hub[cli]"
+huggingface-cli download <your-real-hf-repo-id> --repo-type model 2>&1 | tail -1  # prints the local cache dir; list it, or just:
+python3 -c "from huggingface_hub import HfApi; print(HfApi().list_repo_files('<your-real-hf-repo-id>', repo_type='model'))"
+```
+
+Each file's download URL is `https://huggingface.co/<your-real-hf-repo-id>/resolve/main/<filename>`.

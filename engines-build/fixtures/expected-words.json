@@ -1,0 +1,10 @@
+{
+  "singleSpeaker": {
+    "file": "single-speaker.wav",
+    "words": ["brown fox", "liquid jugs", "vexingly", "boxing wizards"]
+  },
+  "twoSpeaker": {
+    "file": "two-speaker.wav",
+    "expectedSpeakerCount": 2
+  }
+}

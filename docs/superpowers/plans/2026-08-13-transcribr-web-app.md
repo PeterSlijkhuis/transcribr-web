@@ -10,15 +10,17 @@
 
 ## Global Constraints
 
-- **Depends on the `engine-build-pipeline` plan.** This plan's Task 1 needs the real GitHub Release asset URLs that plan's Task 5 produces — do not start this plan until that one has a green `engines-v1` (or later) release.
+- **Depends on the `engine-build-pipeline` plan.** This plan's Task 1 needs the real Hugging Face asset URLs that plan's Task 5 produces — do not start this plan until that one has a green, published `engines-v1` (or later) run.
 - Desktop Chrome/Edge only (per spec) — the compatibility check in `app.js` is the enforcement point.
 - No persistence across page reloads: job state lives in memory only, cleared on refresh. No IndexedDB, no job history.
 - Jobs process **one at a time**, sequentially (`app.js`'s queue only posts the next job to the worker after the previous one reports `done` or `error`).
-- Every cross-origin binary asset (the WASM/model/`.data` files from the GitHub Release) is fetched via `fetch()` + the Cache API + a `blob:` URL before being handed to the engine glue, never loaded directly by URL. This is required, not optional: the app runs under `Cross-Origin-Embedder-Policy: require-corp` (needed for `SharedArrayBuffer`), and COEP blocks any cross-origin resource that doesn't send a matching `Cross-Origin-Resource-Policy` header — which a GitHub Release asset is not guaranteed to send. Fetching the bytes ourselves and loading from a same-origin `blob:` URL sidesteps that requirement entirely, and doubles as the offline-cache mechanism the spec calls for.
+- Every cross-origin binary asset (the WASM/model/`.data` files, hosted on Hugging Face — see below) is fetched via `fetch()` + the Cache API + a `blob:` URL before being handed to the engine glue, never loaded directly by URL. This is required, not optional: the app runs under `Cross-Origin-Embedder-Policy: require-corp` (needed for `SharedArrayBuffer`), and COEP blocks any cross-origin resource that doesn't send a matching `Cross-Origin-Resource-Policy` header. Fetching the bytes ourselves and loading from a same-origin `blob:` URL sidesteps that requirement entirely, and doubles as the offline-cache mechanism the spec calls for.
+- **Asset hosting is Hugging Face, not a GitHub Release.** Verified empirically: GitHub release assets send no `Access-Control-Allow-Origin` header (a browser `fetch()` reading the response body would be blocked), while Hugging Face's file CDN does send `Access-Control-Allow-Origin: *` — and it's already the pattern this codebase uses for the Whisper model in the native app. `engine-build-pipeline`'s Task 5 publishes there; this plan's Task 1 references `https://huggingface.co/<repo>/resolve/main/<filename>` URLs.
 - Export formats and schema match the desktop app: CSV/JSON use the `speaker_id, timestamp_start, timestamp_end, transcribed_text` columns; all four formats (CSV, JSON, SRT, DOCX) are in scope.
 - **Known implementation risks to verify once the real engine build exists** (cannot be fully confirmed until `engine-build-pipeline`'s Task 5 has run for real):
   1. Whether `Module.locateFile` correctly redirects sherpa's `.data` file fetch to our pre-fetched `blob:` URL (API.md confirms the `.data` file is auto-fetched by the generated runtime, but doesn't confirm it goes through `locateFile`). If Task 2's Step 4 verification shows it doesn't, grep the built `sherpa-onnx-wasm-main-speaker-diarization.js` for how it fetches the `.data` file and adjust `engines/sherpa.js` accordingly.
-  2. The exact sherpa output filenames (`helperJsUrl`/`mainJsUrl`/`wasmUrl`/`dataUrl` in Task 1's manifest) — copy them verbatim from the release, don't guess.
+  2. The exact sherpa output filenames (`helperJsUrl`/`mainJsUrl`/`wasmUrl`/`dataUrl` in Task 1's manifest) — copy them verbatim from the published files, don't guess.
+  3. Both engines are `-pthread` builds, and Emscripten's pthread runtime spawns nested Web Workers by re-loading its own script URL. Loading the main glue from a `blob:` URL (as `engines/whisper.js`/`engines/sherpa.js` do) may break that self-reference, since a `blob:` URL has no meaningful base for the runtime to resolve its own worker script against. Check this in the same Task 6 Step 5 smoke test: if pthread workers fail to spawn (symptom: `full_default`/`process()` hangs or throws inside a nested-worker error rather than completing), grep the built glue for how it constructs the nested worker's URL and, if it truly can't tolerate a `blob:` base, fall back to same-origin hosting for the two JS glue files specifically (small enough to commit directly to this repo) while keeping the large `.wasm`/model/`.data` files on the `blob:` URL path.
 
 ---
 
@@ -28,40 +30,46 @@
 - Create: `engines/manifest.json`
 
 **Interfaces:**
-- Consumes: the asset list and download URLs recorded at the end of `engine-build-pipeline`'s Task 5.
+- Consumes: the exact filenames recorded at the end of `engine-build-pipeline`'s Task 5, and that plan's Hugging Face repo id.
 - Produces: the `{ whisper: {...}, sherpa: {...} }` shape Tasks 2 and 5 read by `fetch("engines/manifest.json")`.
 
 - [ ] **Step 1: Write the manifest**
 
-Substitute the real values from the `engine-build-pipeline` plan's Task 5 output (your repo owner/name, and sherpa's exact reported filenames) into this shape:
+Substitute the real Hugging Face repo id and sherpa's exact reported filenames from the `engine-build-pipeline` plan's Task 5 output into this shape:
 
 ```json
 {
   "version": "engines-v1",
   "whisper": {
-    "libJsUrl": "https://github.com/<owner>/transcribr-web/releases/download/engines-v1/whisper-libmain.js",
-    "wasmUrl": "https://github.com/<owner>/transcribr-web/releases/download/engines-v1/whisper-libmain.wasm",
-    "modelUrl": "https://github.com/<owner>/transcribr-web/releases/download/engines-v1/whisper-ggml-base.bin"
+    "libJsUrl": "https://huggingface.co/<hf-repo-id>/resolve/main/whisper-libmain.js",
+    "wasmUrl": "https://huggingface.co/<hf-repo-id>/resolve/main/whisper-libmain.wasm",
+    "modelUrl": "https://huggingface.co/<hf-repo-id>/resolve/main/whisper-ggml-base.bin"
   },
   "sherpa": {
-    "helperJsUrl": "https://github.com/<owner>/transcribr-web/releases/download/engines-v1/<sherpa-helper-js-filename-from-release>",
-    "mainJsUrl": "https://github.com/<owner>/transcribr-web/releases/download/engines-v1/<sherpa-main-glue-js-filename-from-release>",
-    "wasmUrl": "https://github.com/<owner>/transcribr-web/releases/download/engines-v1/<sherpa-wasm-filename-from-release>",
-    "dataUrl": "https://github.com/<owner>/transcribr-web/releases/download/engines-v1/<sherpa-data-filename-from-release>"
+    "helperJsUrl": "https://huggingface.co/<hf-repo-id>/resolve/main/<sherpa-helper-js-filename>",
+    "mainJsUrl": "https://huggingface.co/<hf-repo-id>/resolve/main/<sherpa-main-glue-js-filename>",
+    "wasmUrl": "https://huggingface.co/<hf-repo-id>/resolve/main/<sherpa-wasm-filename>",
+    "dataUrl": "https://huggingface.co/<hf-repo-id>/resolve/main/<sherpa-data-filename>"
   }
 }
 ```
 
-- [ ] **Step 2: Verify the URLs actually resolve**
+- [ ] **Step 2: Verify the URLs actually resolve, and that CORS is really in effect**
 
-Run: `curl -sIL <each URL above> | head -1` for all seven URLs.
-Expected: `HTTP/2 200` (curl follows GitHub's redirect to the actual asset storage) for each. A 404 means a filename was copied wrong — recheck against `gh release view engines-v1 --json assets --jq '.assets[].name'`.
+```bash
+for u in <all seven URLs above>; do
+  echo "== $u =="
+  curl -s -D - -o /dev/null -H "Origin: https://example.github.io" -L "$u" | grep -i -E "^HTTP|access-control-allow-origin"
+done
+```
+
+Expected: each prints a final `HTTP/1.1 200` (or `HTTP/2 200`) and an `access-control-allow-origin: *` line. A 404 means a filename was copied wrong — recheck against the file listing from `engine-build-pipeline`'s Task 5 Step 4. A 200 with no CORS header would mean Hugging Face changed behavior since this plan verified it — stop and re-examine before continuing, since the whole loading strategy depends on it.
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add engines/manifest.json
-git commit -m "Add engine manifest pointing at the engines-v1 release assets"
+git commit -m "Add engine manifest pointing at the published Hugging Face engine assets"
 ```
 
 ---
@@ -1213,7 +1221,7 @@ if (checkCompat()) {
 
 - [ ] **Step 5: Manual end-to-end smoke test**
 
-Run a local server with COOP/COEP headers (any of the small `node:http` servers already written for `engine-build-pipeline`'s Task 3/4 test harnesses works as a template), open the page in Chrome, drop in `engines-build/fixtures/two-speaker.wav`, and confirm: the compat banner doesn't show an error, the download banner appears, the job progresses through its stages, and a two-speaker transcript with working CSV/JSON/SRT/DOCX export buttons appears. This is the point referenced by Task 5 Step 3 — fix `engines/sherpa.js` here if needed.
+Run a local server with COOP/COEP headers (any of the small `node:http` servers already written for `engine-build-pipeline`'s Task 3/4 test harnesses works as a template), open the page in Chrome, drop in `engines-build/fixtures/two-speaker.wav`, and confirm: the compat banner doesn't show an error, the download banner appears, the job progresses through its stages, and a two-speaker transcript with working CSV/JSON/SRT/DOCX export buttons appears. This is the point referenced by Task 5 Step 3 — fix `engines/sherpa.js` here if needed. Also check this plan's Global Constraints risk #3 (pthread workers spawned from a `blob:`-loaded glue script) here: open the browser's DevTools console while this runs and confirm no worker-spawn errors appear and the job actually reaches "done" rather than hanging at "diarizing speakers" or "transcribing" — if it hangs or errors there, follow that risk note's fallback (same-origin-host the two JS glue files).
 
 - [ ] **Step 6: Commit**
 
@@ -1256,7 +1264,7 @@ git commit -m "Add app shell: compatibility check, file queue, UI, exports"
 // transcript with the expected speaker count comes back plus all four
 // exports produce non-empty downloads -- the browser equivalent of the
 // desktop app's --selftest. Nothing is mocked: engine downloads hit the
-// real GitHub Release URLs in engines/manifest.json. A persistent browser
+// real Hugging Face URLs in engines/manifest.json. A persistent browser
 // profile is used so repeat CI runs reuse the ~250MB download via the
 // browser's own Cache Storage instead of re-fetching it every time -- see
 // .github/workflows/deploy-pages.yml's actions/cache step.

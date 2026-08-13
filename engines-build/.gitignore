@@ -1,0 +1,8 @@
+# engines-build/.gitignore
+emsdk/
+whisper/src/
+whisper/dist/
+sherpa/src/
+sherpa/build-wasm-simd-speaker-diarization/
+sherpa/dist/
+node_modules/

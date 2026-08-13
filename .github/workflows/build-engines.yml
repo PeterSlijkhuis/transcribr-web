@@ -9,8 +9,9 @@ on:
         type: boolean
         default: false
       hf_repo_id:
-        description: 'Hugging Face model repo id, e.g. yourname/transcribr-web-engines'
+        description: 'Hugging Face model repo id'
         required: true
+        default: 'Warlordys/transcribr-web'
       version_label:
         description: 'Version label for this build (used as the HF commit message and in manifest.json)'
         required: true
@@ -53,7 +54,7 @@ jobs:
       - name: Fetch whisper base model (for the test harness and the publish step)
         run: |
           mkdir -p engines-build/whisper/dist/models
-          curl -L -o engines-build/whisper/dist/models/ggml-base.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
+          curl -fsSL --retry 3 --retry-all-errors -o engines-build/whisper/dist/models/ggml-base.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
 
       - name: Test whisper.wasm
         run: |
@@ -123,6 +124,7 @@ jobs:
     needs: [build-whisper, build-sherpa]
     if: ${{ github.event.inputs.publish == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -151,7 +153,9 @@ jobs:
       - name: Upload to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO_ID: ${{ github.event.inputs.hf_repo_id }}
+          VERSION_LABEL: ${{ github.event.inputs.version_label }}
         run: |
-          hf upload "${{ github.event.inputs.hf_repo_id }}" publish . \
+          hf upload "$HF_REPO_ID" publish . \
             --repo-type model \
-            --commit-message "${{ github.event.inputs.version_label }}"
+            --commit-message "$VERSION_LABEL"

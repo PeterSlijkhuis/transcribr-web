@@ -7,9 +7,13 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+PIN=c29b1838c843f92c7ad58eb81e174ccb4c3508cf
 if [ ! -d src ]; then
   git clone -c core.longpaths=true https://github.com/k2-fsa/sherpa-onnx src
-  git -C src checkout c29b1838c843f92c7ad58eb81e174ccb4c3508cf
+fi
+if [ "$(git -C src rev-parse HEAD)" != "$PIN" ]; then
+  git -C src fetch --all
+  git -C src checkout "$PIN"
 fi
 
 source ../emsdk/emsdk_env.sh
@@ -27,14 +31,14 @@ if [ ! -f "$ASSETS_DIR/segmentation.onnx" ]; then
   # non-zero exit (permission denied) kills the script under `set -e`
   # even though the model file itself was found.
   SEG_SCRATCH=$(mktemp -d)
-  curl -L -o "$SEG_SCRATCH/segmentation.tar.bz2" https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2
+  curl -fsSL --retry 3 --retry-all-errors -o "$SEG_SCRATCH/segmentation.tar.bz2" https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2
   tar -xjf "$SEG_SCRATCH/segmentation.tar.bz2" -C "$SEG_SCRATCH"
   find "$SEG_SCRATCH" -iname 'model.onnx' -path '*segmentation*' -exec cp {} "$ASSETS_DIR/segmentation.onnx" \;
   # Cleanup is deferred to below the failure check -- if the copy didn't
   # land, we want $SEG_SCRATCH to still be on disk for the error message.
 fi
 if [ ! -f "$ASSETS_DIR/embedding.onnx" ]; then
-  curl -L -o "$ASSETS_DIR/embedding.onnx" https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/nemo_en_titanet_large.onnx
+  curl -fsSL --retry 3 --retry-all-errors -o "$ASSETS_DIR/embedding.onnx" https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/nemo_en_titanet_large.onnx
 fi
 if [ ! -f "$ASSETS_DIR/segmentation.onnx" ]; then
   echo "error: segmentation.onnx missing after extracting the archive -- inspect ${SEG_SCRATCH:-the scratch dir (already cleaned up; segmentation.onnx must have already existed)} for the real internal path and adjust the 'find' command above" >&2

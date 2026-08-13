@@ -1,0 +1,53 @@
+<!doctype html>
+<title>sherpa-onnx wasm diarization engine build check</title>
+<script>
+  var Module = {
+    print: function (text) { log(text); },
+    printErr: function (text) { log("ERR: " + text); },
+    onRuntimeInitialized: function () {
+      document.getElementById("run").disabled = false;
+      log("runtime ready");
+    },
+  };
+  function log(msg) {
+    document.getElementById("log").textContent += msg + "\n";
+    console.log(msg);
+  }
+
+  async function decodeFixture(url, targetRate) {
+    const res = await fetch(url);
+    const arr = await res.arrayBuffer();
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const decoded = await ctx.decodeAudioData(arr);
+    const offline = new OfflineAudioContext(1, Math.ceil(decoded.duration * targetRate), targetRate);
+    const src = offline.createBufferSource();
+    src.buffer = decoded;
+    src.connect(offline.destination);
+    src.start(0);
+    const rendered = await offline.startRendering();
+    return rendered.getChannelData(0);
+  }
+
+  // Named runTest, not run: sherpa-onnx-wasm-main-speaker-diarization.js
+  // (Emscripten, non-modularized) declares its own global `function run()`
+  // for its runtime bootstrap, which would otherwise collide with this one.
+  async function runTest() {
+    document.getElementById("run").disabled = true;
+    const config = {
+      segmentation: { pyannote: { model: "./segmentation.onnx" }, debug: 1 },
+      embedding: { model: "./embedding.onnx", debug: 1 },
+      clustering: { numClusters: 2, threshold: 0.5 },
+      minDurationOn: 0.3,
+      minDurationOff: 0.5,
+    };
+    const sd = createOfflineSpeakerDiarization(Module, config);
+    log("sampleRate=" + sd.sampleRate);
+    const audio = await decodeFixture("../fixtures/two-speaker.wav", sd.sampleRate);
+    const result = sd.process(audio);
+    log("RESULT_JSON=" + JSON.stringify(result));
+  }
+</script>
+<script src="./sherpa-onnx-speaker-diarization.js"></script>
+<script src="./sherpa-onnx-wasm-main-speaker-diarization.js"></script>
+<pre id="log"></pre>
+<button id="run" onclick="runTest()" disabled>Run</button>

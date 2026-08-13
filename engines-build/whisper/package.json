@@ -1,0 +1,8 @@
+{
+  "name": "transcribr-web-engine-check-whisper",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "playwright": "^1.48.0"
+  }
+}

@@ -395,6 +395,8 @@ async function processJob(job) {
     (p) => {
       if (p.label) {
         setStatus(job, `Downloading ${p.label}`, p.total ? p.loaded / p.total : undefined);
+      } else if (p.started) {
+        setStatus(job, "Transcribing");
       } else {
         setStatus(job, "Transcribing", p.fraction);
       }

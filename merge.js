@@ -76,8 +76,16 @@ export function assignSpeakers(wsegs, dsegs) {
 
   const sorted = [...wsegs].sort((a, b) => a.t0 - b.t0);
   const split = sorted.flatMap((w) => splitAtBoundaries(dsegs, w));
+  // Number speakers by first appearance in the transcript: diarization's
+  // cluster ids can skip values (a cluster with no speech assigned), which
+  // would otherwise show "Speaker 2" and "Speaker 3" with no "Speaker 1".
+  const order = new Map();
+  const numberOf = (spk) => {
+    if (!order.has(spk)) order.set(spk, order.size + 1);
+    return order.get(spk);
+  };
   return split.map((w) => ({
-    speaker_id: `Speaker ${speakerOf(w) + 1}`,
+    speaker_id: `Speaker ${numberOf(speakerOf(w))}`,
     timestamp_start: round3(w.t0),
     timestamp_end: round3(w.t1),
     transcribed_text: w.text.trim(),

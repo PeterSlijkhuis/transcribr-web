@@ -1,0 +1,14 @@
+{
+  "version": "engines-v1",
+  "whisper": {
+    "libJsUrl": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/whisper-libmain.js",
+    "wasmUrl": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/whisper-libmain.wasm",
+    "modelUrl": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/whisper-ggml-base.bin"
+  },
+  "sherpa": {
+    "helperJsUrl": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/sherpa-onnx-speaker-diarization.js",
+    "mainJsUrl": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/sherpa-onnx-wasm-main-speaker-diarization.js",
+    "wasmUrl": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/sherpa-onnx-wasm-main-speaker-diarization.wasm",
+    "dataUrl": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/sherpa-onnx-wasm-main-speaker-diarization.data"
+  }
+}

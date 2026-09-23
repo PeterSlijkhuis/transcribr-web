@@ -12,3 +12,7 @@ segmentation-3.0 / NeMo TitaNet speaker-embedding models used by this app
 are downloaded from their original publishers (Hugging Face / GitHub
 Releases) at build time — see `engines-build/whisper/build.sh` and
 `engines-build/sherpa/build.sh` for exact sources.
+
+`coi-serviceworker.js` is vendored unmodified from coi-serviceworker v0.1.7
+(npm package `coi-serviceworker`), copyright (c) 2021 Guido Zuidhof, MIT
+License.

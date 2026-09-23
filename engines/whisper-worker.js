@@ -10,6 +10,7 @@
 //   in  {type: "transcribe", samples: Float32Array (16kHz mono), language,
 //        translate, modelUrl}
 //   out {type: "progress", label, loaded, total} while a new model downloads
+//   out {type: "progress", started: true} once the model is ready
 //   out {type: "progress", fraction} ... then {type: "result", segments: [{t0, t1, text}]}
 //   out {type: "error", error, fatal?} for either request
 importScripts("fetch-cached.js");
@@ -108,6 +109,7 @@ importScripts("fetch-cached.js");
 
   async function transcribe(samples, language, translate, url) {
     await ensureModel(url);
+    self.postMessage({ type: "progress", started: true });
     segments = [];
     durationSec = samples.length / 16000;
     return new Promise((resolve, reject) => {

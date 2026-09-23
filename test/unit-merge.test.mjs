@@ -54,3 +54,19 @@ test("splitAtBoundaries never emits an empty piece", () => {
   ];
   for (const p of splitAtBoundaries(dsegs, w)) assert.notEqual(p.text, "");
 });
+
+test("assignSpeakers numbers speakers by first appearance, whatever the cluster ids", () => {
+  const rows = assignSpeakers(
+    [
+      { t0: 0, t1: 1, text: "a" },
+      { t0: 1, t1: 2, text: "b" },
+      { t0: 2, t1: 3, text: "c" },
+    ],
+    [
+      { s: 0, e: 1, spk: 2 },
+      { s: 1, e: 2, spk: 1 },
+      { s: 2, e: 3, spk: 2 },
+    ]
+  );
+  assert.deepEqual(rows.map((r) => r.speaker_id), ["Speaker 1", "Speaker 2", "Speaker 1"]);
+});

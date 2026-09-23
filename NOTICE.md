@@ -9,7 +9,9 @@ scripts for, the following open-source projects:
 
 The Whisper `base` speech model and the sherpa-onnx pyannote
 segmentation-3.0 / NeMo TitaNet speaker-embedding models used by this app
-are downloaded from their original publishers (Hugging Face / GitHub
+are downloaded from their original publishers; the optional tiny and
+small Whisper models are fetched by the app at runtime from
+huggingface.co/ggerganov/whisper.cpp (MIT) (Hugging Face / GitHub
 Releases) at build time — see `engines-build/whisper/build.sh` and
 `engines-build/sherpa/build.sh` for exact sources.
 

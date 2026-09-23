@@ -119,3 +119,18 @@ body {
 .job-warning button {
   margin-right: 0.5rem;
 }
+.job-speakers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  margin: 0.5rem 0;
+}
+.job-speakers label {
+  color: hsl(var(--hue), 60%, 45%);
+  font-weight: 600;
+}
+.job-speakers input {
+  width: 9rem;
+  margin-left: 0.3rem;
+}

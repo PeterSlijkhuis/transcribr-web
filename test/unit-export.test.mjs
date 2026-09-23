@@ -32,8 +32,10 @@ test("toSrt never rounds milliseconds up to 1000", () => {
 });
 
 test("toJsonString includes segments, turns and speaker count", () => {
-  const obj = JSON.parse(toJsonString("a.wav", 3, rows));
+  const obj = JSON.parse(toJsonString("a.wav", 3, rows, { model: "ggml-small-q5_1", translated: true }));
   assert.equal(obj.speaker_count, 2);
+  assert.equal(obj.whisper_model, "whisper.cpp ggml-small-q5_1 (wasm)");
+  assert.equal(obj.translated_to_english, true);
   assert.equal(obj.segments.length, 2);
   assert.equal(obj.turns.length, 2);
 });

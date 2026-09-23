@@ -2,7 +2,9 @@
 // feeds both fixture files through the real file input, and asserts that
 // the single-speaker file's transcript contains the expected words, the
 // two-speaker file comes back with two speakers, and all four exports
-// download with the right structure. Nothing is mocked: the engines come
+// download with the right structure (including a renamed speaker). Then it
+// switches to the "small" model and transcribes the single-speaker file
+// again, to cover model switching and the quantized models. Nothing is mocked: the engines come
 // from the Hugging Face URLs in engines/manifest.json. A persistent browser
 // profile keeps the ~275MB engine download in Cache Storage between runs
 // (CI caches .playwright-profile/ keyed on the manifest).
@@ -23,6 +25,31 @@ async function readDownload(download) {
   const chunks = [];
   for await (const chunk of await download.createReadStream()) chunks.push(chunk);
   return Buffer.concat(chunks);
+}
+
+async function waitForJobs(page, count) {
+  const statusLog = setInterval(async () => {
+    const s = await page.$$eval(".job", (els) => els.map((e) => `${e.dataset.status}: ${e.querySelector(".job-status").textContent}`)).catch(() => []);
+    const banner = await page.textContent("#engine-status").catch(() => "");
+    console.log("[status]", s.join(" | "), "|", banner);
+  }, 10_000);
+  try {
+    await page.waitForFunction(
+      (n) => {
+        const jobs = [...document.querySelectorAll(".job")];
+        return jobs.length === n && jobs.every((j) => j.dataset.status === "done" || j.dataset.status === "error");
+      },
+      count,
+      { timeout: JOB_TIMEOUT_MS, polling: 1000 }
+    );
+  } finally {
+    clearInterval(statusLog);
+  }
+}
+
+async function assertNoErrors(page) {
+  const errors = await page.$$eval(".job-error", (els) => els.map((e) => e.textContent).filter(Boolean));
+  assert.deepEqual(errors, [], "jobs failed");
 }
 
 const server = await startServer(PORT);
@@ -47,27 +74,10 @@ try {
     path.join(fixtures, expected.twoSpeaker.file),
   ]);
 
-  const statusLog = setInterval(async () => {
-    const s = await page.$$eval(".job", (els) => els.map((e) => `${e.dataset.status}: ${e.querySelector(".job-status").textContent}`)).catch(() => []);
-    const banner = await page.textContent("#engine-status").catch(() => "");
-    console.log("[status]", s.join(" | "), "|", banner);
-  }, 10_000);
-  try {
-    await page.waitForFunction(
-      () => {
-        const jobs = [...document.querySelectorAll(".job")];
-        return jobs.length === 2 && jobs.every((j) => j.dataset.status === "done" || j.dataset.status === "error");
-      },
-      null,
-      { timeout: JOB_TIMEOUT_MS, polling: 1000 }
-    );
-  } finally {
-    clearInterval(statusLog);
-  }
+  await waitForJobs(page, 2);
 
   const jobs = await page.$$(".job");
-  const errors = await page.$$eval(".job-error", (els) => els.map((e) => e.textContent).filter(Boolean));
-  assert.deepEqual(errors, [], "jobs failed");
+  await assertNoErrors(page);
 
   // single-speaker.wav: expected words present, one speaker.
   const single = (await jobs[0].$eval(".job-transcript", (e) => e.textContent)).toLowerCase();
@@ -77,23 +87,39 @@ try {
   const speakers = await jobs[1].$$eval(".turn-speaker", (els) => [...new Set(els.map((e) => e.textContent))]);
   assert.equal(speakers.length, expected.twoSpeaker.expectedSpeakerCount, `speakers: ${speakers.join(", ")}`);
 
+  // Rename a speaker; the exports below must carry the new name.
+  await page.fill('.job:nth-child(2) .job-speakers input[data-speaker="Speaker 1"]', "Interviewer");
+
   // Exports, from the two-speaker job.
-  const grab = async (cls) => {
-    const [download] = await Promise.all([page.waitForEvent("download"), page.click(`.job:nth-child(2) ${cls}`)]);
+  const grab = async (cls, nth = 2) => {
+    const [download] = await Promise.all([page.waitForEvent("download"), page.click(`.job:nth-child(${nth}) ${cls}`)]);
     return readDownload(download);
   };
   const csv = (await grab(".export-csv")).toString("utf8");
   assert.match(csv, /^speaker_id,timestamp_start,timestamp_end,transcribed_text\n/);
   assert.ok(csv.trim().split("\n").length >= 3, "CSV has fewer than 2 data rows");
+  assert.match(csv, /\nInterviewer,/, "renamed speaker missing from CSV");
   const json = JSON.parse((await grab(".export-json")).toString("utf8"));
   assert.equal(json.speaker_count, expected.twoSpeaker.expectedSpeakerCount);
   const srt = (await grab(".export-srt")).toString("utf8");
-  assert.match(srt, /^1\r\n\d\d:\d\d:\d\d,\d\d\d --> \d\d:\d\d:\d\d,\d\d\d\r\nSpeaker \d: /);
+  assert.match(srt, /^1\r\n\d\d:\d\d:\d\d,\d\d\d --> \d\d:\d\d:\d\d,\d\d\d\r\n(Speaker \d|Interviewer): /);
   const docx = await grab(".export-docx");
   assert.equal(docx.subarray(0, 2).toString("latin1"), "PK");
   assert.ok(docx.includes(Buffer.from("word/document.xml")), "DOCX lacks word/document.xml");
 
-  console.log(`PASS: expected words found; ${speakers.length} speakers; CSV/JSON/SRT/DOCX exports valid`);
+  // Same file again with the "small" model.
+  await page.selectOption("#model", "small");
+  await page.setInputFiles("#file-input", path.join(fixtures, expected.singleSpeaker.file));
+  await waitForJobs(page, 3);
+  await assertNoErrors(page);
+  const third = await page.$(".job:nth-child(3)");
+  assert.match(await third.$eval(".job-status", (e) => e.textContent), /^Done/);
+  const small = (await third.$eval(".job-transcript", (e) => e.textContent)).toLowerCase();
+  for (const w of expected.singleSpeaker.words) assert.ok(small.includes(w.toLowerCase()), `small model: missing "${w}" in: ${small}`);
+  const smallJson = JSON.parse((await grab(".export-json", 3)).toString("utf8"));
+  assert.equal(smallJson.whisper_model, "whisper.cpp ggml-small-q5_1 (wasm)");
+
+  console.log(`PASS: expected words found (base and small); ${speakers.length} speakers; renamed speaker in exports; CSV/JSON/SRT/DOCX valid`);
 } finally {
   await context.close();
   server.close();

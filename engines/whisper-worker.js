@@ -7,13 +7,17 @@
 // Protocol (app.js is the only caller):
 //   in  {type: "load", manifest, version}
 //   out {type: "progress", label, loaded, total} ... then {type: "loaded"}
-//   in  {type: "transcribe", samples: Float32Array (16kHz mono), language}
+//   in  {type: "transcribe", samples: Float32Array (16kHz mono), language,
+//        translate, modelUrl}
+//   out {type: "progress", label, loaded, total} while a new model downloads
 //   out {type: "progress", fraction} ... then {type: "result", segments: [{t0, t1, text}]}
-//   out {type: "error", error} for either request
+//   out {type: "error", error, fatal?} for either request
 importScripts("fetch-cached.js");
 
 (function () {
   let instance = 0;
+  let modelUrl = null;
+  let cacheVersion = null;
   let segments = [];
   let durationSec = 0;
   let finish = null;
@@ -52,12 +56,13 @@ importScripts("fetch-cached.js");
     }
   }
 
+  const progress = (label) => (loaded, total) => self.postMessage({ type: "progress", label, loaded, total });
+
   async function load(manifest, version) {
     const w = manifest.whisper;
-    const progress = (label) => (loaded, total) => self.postMessage({ type: "progress", label, loaded, total });
+    cacheVersion = version;
     const jsUrl = URL.createObjectURL(await transcribrFetchCached.fetchCachedBlob(w.libJsUrl, version, progress("whisper engine")));
     const wasmUrl = URL.createObjectURL(await transcribrFetchCached.fetchCachedBlob(w.wasmUrl, version, progress("whisper engine")));
-    const modelBlob = await transcribrFetchCached.fetchCachedBlob(w.modelUrl, version, progress("whisper model"));
 
     await new Promise((resolve, reject) => {
       self.Module = {
@@ -69,8 +74,8 @@ importScripts("fetch-cached.js");
         mainScriptUrlOrBlob: jsUrl,
         onRuntimeInitialized: resolve,
         onAbort: (what) => {
-          if (!instance) return reject(new Error("whisper engine failed to start: " + what));
-          // Aborted mid-transcription: the runtime is dead, so report it as
+          if (!self.Module.full_default) return reject(new Error("whisper engine failed to start: " + what));
+          // Aborted after startup: the runtime is dead, so report it as
           // fatal and let app.js replace this worker.
           finish = null;
           self.postMessage({ type: "error", fatal: true, error: "whisper engine stopped: " + what });
@@ -78,24 +83,37 @@ importScripts("fetch-cached.js");
       };
       importScripts(jsUrl);
     });
+  }
 
+  // Swap in a different model only when asked for one; the loaded one is
+  // reused across jobs.
+  async function ensureModel(url) {
+    if (url === modelUrl) return;
     const Module = self.Module;
-    const bytes = new Uint8Array(await modelBlob.arrayBuffer());
+    const blob = await transcribrFetchCached.fetchCachedBlob(url, cacheVersion, progress("whisper model"));
+    if (instance) {
+      Module.free(instance);
+      instance = 0;
+      modelUrl = null;
+    }
+    const bytes = new Uint8Array(await blob.arrayBuffer());
     try { Module.FS_unlink("whisper.bin"); } catch (e) {}
     Module.FS_createDataFile("/", "whisper.bin", bytes, true, true);
     instance = Module.init("whisper.bin");
     // init() has read the model into wasm memory; drop the in-memory file copy.
     try { Module.FS_unlink("whisper.bin"); } catch (e) {}
     if (!instance) throw new Error("whisper engine could not load its model");
+    modelUrl = url;
   }
 
-  function transcribe(samples, language) {
+  async function transcribe(samples, language, translate, url) {
+    await ensureModel(url);
     segments = [];
     durationSec = samples.length / 16000;
     return new Promise((resolve, reject) => {
       finish = () => resolve(segments.slice());
       const nthreads = Math.max(1, Math.min(8, (self.navigator.hardwareConcurrency || 4) - 1));
-      const ret = self.Module.full_default(instance, samples, language || "auto", nthreads, false);
+      const ret = self.Module.full_default(instance, samples, language || "auto", nthreads, Boolean(translate));
       if (ret !== 0) {
         finish = null;
         reject(new Error("whisper engine refused the audio (code " + ret + ")"));
@@ -110,7 +128,7 @@ importScripts("fetch-cached.js");
         await load(msg.manifest, msg.version);
         self.postMessage({ type: "loaded" });
       } else if (msg.type === "transcribe") {
-        const result = await transcribe(msg.samples, msg.language);
+        const result = await transcribe(msg.samples, msg.language, msg.translate, msg.modelUrl);
         self.postMessage({ type: "result", segments: result });
       }
     } catch (err) {

@@ -3,7 +3,27 @@
   "whisper": {
     "libJsUrl": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/whisper-libmain.js",
     "wasmUrl": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/whisper-libmain.wasm",
-    "modelUrl": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/whisper-ggml-base.bin"
+    "models": [
+      {
+        "id": "tiny",
+        "label": "Fast (tiny, 32 MB)",
+        "name": "ggml-tiny-q5_1",
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin"
+      },
+      {
+        "id": "base",
+        "label": "Standard (base, 148 MB)",
+        "name": "ggml-base",
+        "url": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/whisper-ggml-base.bin",
+        "default": true
+      },
+      {
+        "id": "small",
+        "label": "Accurate (small, 190 MB)",
+        "name": "ggml-small-q5_1",
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin"
+      }
+    ]
   },
   "sherpa": {
     "helperJsUrl": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/sherpa-onnx-speaker-diarization.js",

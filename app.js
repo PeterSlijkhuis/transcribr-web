@@ -5,7 +5,7 @@
 // engines/sherpa-worker.js). Jobs run one at a time: decode here, diarize
 // in the sherpa worker, transcribe in the whisper worker, merge here.
 import { assignSpeakers } from "./merge.js";
-import { toTurns, speakerCount, fmtClock } from "./shared.js";
+import { toTurns, speakerCount, fmtClock, renameSpeakers } from "./shared.js";
 import { downloadCsv } from "./export/csv.js";
 import { downloadJson } from "./export/json.js";
 import { downloadSrt } from "./export/srt.js";
@@ -23,6 +23,8 @@ const dropzone = document.getElementById("dropzone");
 const jobList = document.getElementById("job-list");
 const numSpeakersInput = document.getElementById("num-speakers");
 const languageInput = document.getElementById("language");
+const modelSelect = document.getElementById("model");
+const translateInput = document.getElementById("translate");
 
 // ---- Compatibility -------------------------------------------------------
 
@@ -166,12 +168,30 @@ function showEngineProgress({ label, loaded, total }) {
   if (total) engineProgress.value = loaded / total;
 }
 
-async function ensureEngines() {
+async function loadManifest() {
   if (!manifest) {
     const res = await fetch("engines/manifest.json");
     if (!res.ok) throw new Error(`download failed (HTTP ${res.status}): engines/manifest.json`);
     manifest = await res.json();
     pruneOldEngineCaches(manifest.version);
+  }
+  return manifest;
+}
+
+function fillModelPicker(m) {
+  if (modelSelect.options.length) return;
+  for (const model of m.whisper.models) {
+    const opt = new Option(model.label, model.id, false, Boolean(model.default));
+    modelSelect.add(opt);
+  }
+}
+
+async function ensureEngines() {
+  fillModelPicker(await loadManifest());
+  if (sherpa.loading && whisper.loading) {
+    // Already loaded by an earlier job (jobs run one at a time).
+    await Promise.all([sherpa.loading, whisper.loading]);
+    return;
   }
   engineBanner.hidden = false;
   engineStatus.textContent = "Loading engines...";
@@ -220,14 +240,48 @@ function setStatus(job, stage, fraction) {
     fraction === undefined ? stage : `${stage} (${Math.round(fraction * 100)}%)`;
 }
 
+function speakerHue(index) {
+  return String((index * 137 + 210) % 360);
+}
+
+/// One text box per detected speaker; names flow into the transcript view
+/// and every export.
+function renderSpeakerNames(job) {
+  const container = job.el.querySelector(".job-speakers");
+  container.replaceChildren();
+  const originals = [...new Set(job.rows.map((r) => r.speaker_id))].sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true })
+  );
+  if (!originals.length) return;
+  container.append("Rename speakers:");
+  originals.forEach((orig, i) => {
+    const label = document.createElement("label");
+    label.style.setProperty("--hue", speakerHue(i));
+    label.textContent = orig;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = orig;
+    input.dataset.speaker = orig;
+    input.value = job.names[orig] || "";
+    input.addEventListener("input", () => {
+      job.names[orig] = input.value;
+      renderTranscript(job);
+    });
+    label.append(input);
+    container.append(label);
+  });
+  container.hidden = false;
+}
+
 function renderTranscript(job) {
   const container = job.el.querySelector(".job-transcript");
   container.replaceChildren();
-  const speakers = [...new Set(job.rows.map((r) => r.speaker_id))];
-  for (const turn of toTurns(job.rows)) {
+  const rows = renameSpeakers(job.rows, job.names);
+  const speakers = [...new Set(rows.map((r) => r.speaker_id))];
+  for (const turn of toTurns(rows)) {
     const p = document.createElement("p");
     p.className = "turn";
-    p.style.setProperty("--hue", String((speakers.indexOf(turn.speaker_id) * 137 + 210) % 360));
+    p.style.setProperty("--hue", speakerHue(speakers.indexOf(turn.speaker_id)));
     const who = document.createElement("span");
     who.className = "turn-speaker";
     who.textContent = turn.speaker_id;
@@ -252,10 +306,13 @@ function finishJob(job) {
   const exportsEl = job.el.querySelector(".job-exports");
   exportsEl.hidden = false;
   const baseName = job.name.replace(/\.[^.]+$/, "");
-  exportsEl.querySelector(".export-csv").onclick = () => downloadCsv(job.rows, `${baseName}_transcript.csv`);
-  exportsEl.querySelector(".export-json").onclick = () => downloadJson(job.name, job.durationSec, job.rows, `${baseName}_transcript.json`);
-  exportsEl.querySelector(".export-srt").onclick = () => downloadSrt(job.rows, `${baseName}_transcript.srt`);
-  exportsEl.querySelector(".export-docx").onclick = () => downloadDocx(baseName, job.rows, `${baseName}_transcript.docx`);
+  const rows = () => renameSpeakers(job.rows, job.names);
+  exportsEl.querySelector(".export-csv").onclick = () => downloadCsv(rows(), `${baseName}_transcript.csv`);
+  exportsEl.querySelector(".export-json").onclick = () =>
+    downloadJson(job.name, job.durationSec, rows(), { model: job.model, translated: job.translate }, `${baseName}_transcript.json`);
+  exportsEl.querySelector(".export-srt").onclick = () => downloadSrt(rows(), `${baseName}_transcript.srt`);
+  exportsEl.querySelector(".export-docx").onclick = () => downloadDocx(baseName, rows(), `${baseName}_transcript.docx`);
+  renderSpeakerNames(job);
   renderTranscript(job);
 }
 
@@ -328,9 +385,20 @@ async function processJob(job) {
   const diar = await sherpa.request({ type: "diarize", samples, numSpeakers });
   const dsegs = diar.segments.map((s) => ({ s: s.start, e: s.end, spk: s.speaker }));
 
-  setStatus(job, "Transcribing", 0);
-  const tr = await whisper.request({ type: "transcribe", samples, language }, [samples.buffer], (p) =>
-    setStatus(job, "Transcribing", p.fraction)
+  const model = manifest.whisper.models.find((m) => m.id === modelSelect.value) || manifest.whisper.models.find((m) => m.default);
+  job.model = model.name;
+  job.translate = translateInput.checked;
+  setStatus(job, "Transcribing");
+  const tr = await whisper.request(
+    { type: "transcribe", samples, language, translate: job.translate, modelUrl: model.url },
+    [samples.buffer],
+    (p) => {
+      if (p.label) {
+        setStatus(job, `Downloading ${p.label}`, p.total ? p.loaded / p.total : undefined);
+      } else {
+        setStatus(job, "Transcribing", p.fraction);
+      }
+    }
   );
 
   job.rows = assignSpeakers(tr.segments, dsegs);
@@ -374,11 +442,12 @@ function addJob(file) {
       <button class="export-srt">SRT</button>
       <button class="export-docx">DOCX</button>
     </div>
+    <div class="job-speakers" hidden></div>
     <div class="job-transcript" hidden></div>
   `;
   li.querySelector(".job-name").textContent = file.name;
   jobList.appendChild(li);
-  const job = { name: file.name, file, el: li, rows: [], durationSec: 0 };
+  const job = { name: file.name, file, el: li, rows: [], names: {}, durationSec: 0 };
   enqueue(job);
 }
 
@@ -405,5 +474,7 @@ dropzone.addEventListener("drop", (e) => {
 if (checkCompat()) {
   engineBanner.hidden = false;
   engineStatus.textContent =
-    "The first file you add downloads the transcription and speaker engines (about 275 MB). They are cached for next time.";
+    "The first file you add downloads the transcription and speaker engines (about 275 MB with the standard model). They are cached for next time.";
 }
+loadManifest().then(fillModelPicker).catch(() => {}); // ensureEngines retries and reports
+

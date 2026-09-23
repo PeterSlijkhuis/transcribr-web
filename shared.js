@@ -31,3 +31,12 @@ export function toTurns(rows) {
 export function speakerCount(rows) {
   return new Set(rows.map((r) => r.speaker_id)).size;
 }
+
+/// Apply user-chosen speaker names ({"Speaker 1": "Interviewer"}); blank
+/// names keep the original label.
+export function renameSpeakers(rows, names) {
+  return rows.map((r) => {
+    const name = (names[r.speaker_id] || "").trim();
+    return name ? { ...r, speaker_id: name } : r;
+  });
+}

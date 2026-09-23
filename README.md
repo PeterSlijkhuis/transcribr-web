@@ -39,7 +39,10 @@ npm run e2e       # real engines + fixture audio in headless Chromium
 ```
 
 `.github/workflows/deploy-pages.yml` runs both on every pull request and on
-`master`, then deploys the static files to GitHub Pages from `master`.
+`master`, then deploys the static files to GitHub Pages from `master`. To
+redeploy, start the workflow manually on `master` (Actions → Test and
+deploy → Run workflow); re-running a failed deploy job inside an old run
+fails because that run already has a `github-pages` artifact.
 
 ## Layout
 

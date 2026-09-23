@@ -87,8 +87,12 @@ try {
   const speakers = await jobs[1].$$eval(".turn-speaker", (els) => [...new Set(els.map((e) => e.textContent))]);
   assert.equal(speakers.length, expected.twoSpeaker.expectedSpeakerCount, `speakers: ${speakers.join(", ")}`);
 
-  // Rename a speaker; the exports below must carry the new name.
-  await page.fill('.job:nth-child(2) .job-speakers input[data-speaker="Speaker 1"]', "Interviewer");
+  // Rename the first listed speaker (labels depend on diarization's cluster
+  // ids, so don't assume which exist); the exports below must carry it.
+  const renameInput = page.locator(".job:nth-child(2) .job-speakers input").first();
+  const renamedFrom = await renameInput.getAttribute("data-speaker");
+  console.log("speakers:", speakers.join(", "), "| renaming", renamedFrom);
+  await renameInput.fill("Interviewer");
 
   // Exports, from the two-speaker job.
   const grab = async (cls, nth = 2) => {
@@ -102,7 +106,7 @@ try {
   const json = JSON.parse((await grab(".export-json")).toString("utf8"));
   assert.equal(json.speaker_count, expected.twoSpeaker.expectedSpeakerCount);
   const srt = (await grab(".export-srt")).toString("utf8");
-  assert.match(srt, /^1\r\n\d\d:\d\d:\d\d,\d\d\d --> \d\d:\d\d:\d\d,\d\d\d\r\n(Speaker \d|Interviewer): /);
+  assert.match(srt, /^1\r\n\d\d:\d\d:\d\d,\d\d\d --> \d\d:\d\d:\d\d,\d\d\d\r\n(Speaker \d+|Interviewer): /);
   const docx = await grab(".export-docx");
   assert.equal(docx.subarray(0, 2).toString("latin1"), "PK");
   assert.ok(docx.includes(Buffer.from("word/document.xml")), "DOCX lacks word/document.xml");
@@ -120,6 +124,11 @@ try {
   assert.equal(smallJson.whisper_model, "whisper.cpp ggml-small-q5_1 (wasm)");
 
   console.log(`PASS: expected words found (base and small); ${speakers.length} speakers; renamed speaker in exports; CSV/JSON/SRT/DOCX valid`);
+} catch (err) {
+  // Leave enough in the CI log to diagnose without a rerun.
+  const html = await context.pages()[0]?.innerHTML("#job-list").catch(() => "(page gone)");
+  console.log("[job-list at failure]", html);
+  throw err;
 } finally {
   await context.close();
   server.close();

@@ -1,0 +1,136 @@
+/* styles.css */
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+  --muted: #666;
+  --border: #ccc;
+  --error-bg: #fde2e2;
+  --error-fg: #7a1f1f;
+  --info-bg: #e2f0fd;
+  --info-fg: #1f4a7a;
+  --warn-bg: #fff4e2;
+  --warn-fg: #7a5a1f;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --muted: #aaa;
+    --border: #444;
+    --error-bg: #4a1f1f;
+    --error-fg: #fbd5d5;
+    --info-bg: #1f344a;
+    --info-fg: #d5e8fb;
+    --warn-bg: #4a3a1f;
+    --warn-fg: #fbecd5;
+  }
+}
+body {
+  max-width: 800px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+.subtitle {
+  color: var(--muted);
+}
+.banner {
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  margin: 1rem 0;
+}
+.banner-error {
+  background: var(--error-bg);
+  color: var(--error-fg);
+}
+.banner-info {
+  background: var(--info-bg);
+  color: var(--info-fg);
+}
+.banner progress {
+  width: 100%;
+  margin-top: 0.5rem;
+}
+#dropzone {
+  border: 2px dashed #999;
+  border-radius: 8px;
+  padding: 2rem;
+  text-align: center;
+  margin-top: 0.5rem;
+}
+#dropzone.dragover {
+  background: rgba(127, 127, 127, 0.12);
+}
+#options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin: 1rem 0;
+}
+#job-list {
+  list-style: none;
+  padding: 0;
+}
+.job {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+.job-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.job-status {
+  color: var(--muted);
+}
+.job-error {
+  color: #d0021b;
+}
+.job-exports {
+  margin: 0.5rem 0;
+}
+.job-exports button {
+  margin-right: 0.5rem;
+}
+.job-transcript {
+  max-height: 400px;
+  overflow-y: auto;
+  background: rgba(127, 127, 127, 0.08);
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+}
+.turn {
+  margin: 0.4rem 0;
+}
+.turn-speaker {
+  font-weight: 600;
+  color: hsl(var(--hue), 60%, 45%);
+}
+.turn-time {
+  color: var(--muted);
+  font-size: 0.85em;
+  margin: 0 0.4rem;
+}
+.job-warning {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  padding: 0.5rem;
+  border-radius: 4px;
+  margin-top: 0.5rem;
+}
+.job-warning button {
+  margin-right: 0.5rem;
+}
+.job-speakers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  margin: 0.5rem 0;
+}
+.job-speakers label {
+  color: hsl(var(--hue), 60%, 45%);
+  font-weight: 600;
+}
+.job-speakers input {
+  width: 9rem;
+  margin-left: 0.3rem;
+}

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>transcribr-web</title>
+  <!-- Must load first: makes the page cross-origin-isolated on hosts that
+       can't set COOP/COEP headers (GitHub Pages), reloading once if needed. -->
+  <script src="coi-serviceworker.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <h1>transcribr-web</h1>
+  <p class="subtitle">Transcription with speaker detection, entirely in your browser. Nothing you pick leaves your computer. Desktop Chrome or Edge.</p>
+
+  <div id="compat-banner" class="banner banner-error" hidden></div>
+  <div id="engine-banner" class="banner banner-info" hidden>
+    <div id="engine-status"></div>
+    <progress id="engine-progress" max="1" value="0" hidden></progress>
+  </div>
+
+  <section id="picker">
+    <input type="file" id="file-input" accept="audio/*,video/*" multiple />
+    <div id="dropzone">Drop audio or video files here, or use the picker above.</div>
+  </section>
+
+  <section id="options">
+    <label>Speakers (0 = detect): <input type="number" id="num-speakers" min="0" max="20" value="0" /></label>
+    <label>Language (blank = detect): <input type="text" id="language" placeholder="e.g. en, nl" size="6" /></label>
+    <label>Model: <select id="model"></select></label>
+    <label><input type="checkbox" id="translate" /> Translate to English</label>
+  </section>
+
+  <ul id="job-list"></ul>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

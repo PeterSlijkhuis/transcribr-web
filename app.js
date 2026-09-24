@@ -24,6 +24,7 @@ const jobList = document.getElementById("job-list");
 const numSpeakersInput = document.getElementById("num-speakers");
 const languageInput = document.getElementById("language");
 const modelSelect = document.getElementById("model");
+const modelHint = document.getElementById("model-hint");
 const translateInput = document.getElementById("translate");
 
 // ---- Compatibility -------------------------------------------------------
@@ -178,12 +179,20 @@ async function loadManifest() {
   return manifest;
 }
 
+function updateModelHint(m) {
+  const model = m.whisper.models.find((x) => x.id === modelSelect.value) || m.whisper.models.find((x) => x.default);
+  modelHint.textContent = model && model.hardware ? "Recommended: " + model.hardware : "";
+}
+
 function fillModelPicker(m) {
-  if (modelSelect.options.length) return;
-  for (const model of m.whisper.models) {
-    const opt = new Option(model.label, model.id, false, Boolean(model.default));
-    modelSelect.add(opt);
+  if (!modelSelect.options.length) {
+    for (const model of m.whisper.models) {
+      const opt = new Option(model.label, model.id, false, Boolean(model.default));
+      modelSelect.add(opt);
+    }
+    modelSelect.addEventListener("change", () => updateModelHint(m));
   }
+  updateModelHint(m);
 }
 
 async function ensureEngines() {
@@ -238,6 +247,9 @@ function setStatus(job, stage, fraction) {
   job.stage = stage;
   job.el.querySelector(".job-status").textContent =
     fraction === undefined ? stage : `${stage} (${Math.round(fraction * 100)}%)`;
+  const bar = job.el.querySelector(".job-progress");
+  bar.hidden = fraction === undefined;
+  if (fraction !== undefined) bar.value = fraction;
 }
 
 function speakerHue(index) {
@@ -339,8 +351,8 @@ function askLongRecording(job) {
     warn.innerHTML = `
       <p>Recordings over about an hour may be slow or run out of memory in this browser tab.
       For longer files, consider splitting the file or using the desktop app.</p>
-      <button class="proceed">Process anyway</button>
-      <button class="skip">Skip this file</button>
+      <button class="btn btn-sm proceed">Process anyway</button>
+      <button class="btn btn-sm btn-ghost skip">Skip this file</button>
     `;
     job.el.appendChild(warn);
     warn.querySelector(".proceed").onclick = () => { warn.remove(); resolve(true); };
@@ -435,14 +447,15 @@ function addJob(file) {
   li.innerHTML = `
     <div class="job-name"></div>
     <div class="job-status"></div>
+    <progress class="job-progress" max="1" value="0" hidden></progress>
     <div class="job-error"></div>
-    <button class="job-retry" hidden>Retry</button>
+    <button class="btn btn-sm job-retry" hidden>Retry</button>
     <div class="job-exports" hidden>
-      Download:
-      <button class="export-csv">CSV</button>
-      <button class="export-json">JSON</button>
-      <button class="export-srt">SRT</button>
-      <button class="export-docx">DOCX</button>
+      <span class="job-exports-label">Download:</span>
+      <button class="btn btn-sm export-csv">CSV</button>
+      <button class="btn btn-sm export-json">JSON</button>
+      <button class="btn btn-sm export-srt">SRT</button>
+      <button class="btn btn-sm export-docx">DOCX</button>
     </div>
     <div class="job-speakers" hidden></div>
     <div class="job-transcript" hidden></div>
@@ -476,7 +489,7 @@ dropzone.addEventListener("drop", (e) => {
 if (checkCompat()) {
   engineBanner.hidden = false;
   engineStatus.textContent =
-    "The first file you add downloads the transcription and speaker engines (about 275 MB with the standard model). They are cached for next time.";
+    "The first file you add downloads the transcription and speaker engines (about 320 MB with the standard model). They are cached for next time.";
 }
 loadManifest().then(fillModelPicker).catch(() => {}); // ensureEngines retries and reports
 

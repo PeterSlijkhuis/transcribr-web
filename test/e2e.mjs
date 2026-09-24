@@ -111,6 +111,27 @@ try {
   assert.equal(docx.subarray(0, 2).toString("latin1"), "PK");
   assert.ok(docx.includes(Buffer.from("word/document.xml")), "DOCX lacks word/document.xml");
 
+  // Edit transcript: reassign the first row's speaker (this is how a user
+  // "merges" a sentence into a neighboring turn) and tweak its text; both
+  // must show up in a re-export without re-processing the file.
+  await page.click(".job:nth-child(2) .job-edit-toggle");
+  const editRows = page.locator(".job:nth-child(2) .edit-row");
+  assert.ok((await editRows.count()) > 0, "no editable rows rendered");
+  const firstSelect = editRows.first().locator(".edit-row-speaker");
+  assert.equal(await firstSelect.locator("option").count(), speakers.length, "speaker select option count");
+  const secondOption = firstSelect.locator("option").nth(1);
+  const targetValue = await secondOption.getAttribute("value");
+  const targetLabel = await secondOption.textContent();
+  await firstSelect.selectOption(targetValue);
+  const firstText = editRows.first().locator(".edit-row-text");
+  await firstText.fill((await firstText.inputValue()) + " EDITEDMARK");
+  await page.click(".job:nth-child(2) .job-edit-toggle"); // Done editing
+
+  const editedCsv = (await grab(".export-csv")).toString("utf8");
+  const editedLine = editedCsv.split("\n").find((l) => l.includes("EDITEDMARK"));
+  assert.ok(editedLine, "edited row missing from re-exported CSV");
+  assert.ok(editedLine.startsWith(`${targetLabel},`), `edited row not reassigned to "${targetLabel}": ${editedLine}`);
+
   // Same file again with the "medium" model, to exercise the model-swap
   // path in engines/whisper-worker.js (ensureModel only reloads when the
   // URL actually changes from the default).

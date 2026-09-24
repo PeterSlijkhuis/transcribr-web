@@ -15,6 +15,7 @@
   <header class="hero">
     <h1>transcribr-web</h1>
     <p class="subtitle">Transcription with speaker detection, entirely in your browser. Nothing you pick leaves your computer. Desktop Chrome or Edge.</p>
+    <p class="privacy-badge">&#128274; 100% local: your audio is never uploaded. Only the transcription engine itself (not your files) is downloaded, once, from Hugging Face.</p>
   </header>
 
   <div id="compat-banner" class="banner banner-error" hidden></div>
@@ -24,12 +25,7 @@
   </div>
 
   <section class="panel">
-    <label id="dropzone" for="file-input" class="dropzone">
-      <input type="file" id="file-input" accept="audio/*,video/*" multiple />
-      <span class="dropzone-icon" aria-hidden="true">&#8593;</span>
-      <span class="dropzone-text"><strong>Drop audio or video files here</strong><br />or click to choose files</span>
-    </label>
-
+    <h2 class="step-heading">1. Settings</h2>
     <div id="options" class="options">
       <div class="field">
         <label for="num-speakers">Speakers</label>
@@ -52,7 +48,20 @@
     </div>
   </section>
 
-  <ul id="job-list"></ul>
+  <section class="panel">
+    <h2 class="step-heading">2. Add your files</h2>
+    <label id="dropzone" for="file-input" class="dropzone">
+      <input type="file" id="file-input" accept="audio/*,video/*" multiple />
+      <span class="dropzone-icon" aria-hidden="true">&#8593;</span>
+      <span class="dropzone-text"><strong>Drop audio or video files here</strong><br />or click to choose files</span>
+    </label>
+    <p class="hint">Settings above apply to files as they start processing, so you can still adjust them per file.</p>
+  </section>
+
+  <section id="queue-section">
+    <h2 class="step-heading">3. Queue &amp; results</h2>
+    <ul id="job-list"></ul>
+  </section>
 
   <script type="module" src="app.js"></script>
 </body>

@@ -78,6 +78,17 @@ body {
   margin: 0;
   max-width: 56ch;
 }
+.privacy-badge {
+  display: inline-block;
+  margin: 0.75rem 0 0;
+  padding: 0.4rem 0.75rem;
+  background: var(--accent-soft);
+  color: var(--info-fg);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  font-weight: 500;
+  max-width: 56ch;
+}
 
 /* ---- Banners ------------------------------------------------------------ */
 .banner {
@@ -106,6 +117,22 @@ body {
   box-shadow: var(--shadow);
   padding: 1.25rem;
   margin: 1.5rem 0;
+}
+.step-heading {
+  margin: 0 0 0.15rem;
+  font-size: 1rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+#queue-section {
+  margin: 1.5rem 0 0;
+}
+#queue-section .step-heading {
+  margin-bottom: 0.75rem;
+}
+.panel > .hint {
+  margin-top: 0.6rem;
 }
 
 .dropzone {
@@ -305,6 +332,45 @@ body {
   color: var(--muted);
   font-size: 0.85em;
   margin: 0 0.4rem;
+}
+.edit-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0.3rem 0;
+  padding-left: 0.5rem;
+  border-left: 3px solid hsl(var(--hue), 60%, 45%);
+}
+.edit-row-speaker {
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: hsl(var(--hue), 60%, 45%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 0.15rem 0.3rem;
+  flex: 0 0 auto;
+  max-width: 8rem;
+}
+.edit-row-time {
+  flex: 0 0 auto;
+  margin-top: 0.3rem;
+}
+.edit-row-text {
+  flex: 1 1 auto;
+  font: inherit;
+  resize: none;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  padding: 0.25rem 0.4rem;
+}
+.edit-row-text:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .job-warning {
   background: var(--warn-bg);

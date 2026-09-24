@@ -256,6 +256,12 @@ function speakerHue(index) {
   return String((index * 137 + 210) % 360);
 }
 
+function updateDoneStatus(job) {
+  if (job.status !== "done") return;
+  const n = speakerCount(job.rows);
+  setStatus(job, job.rows.length ? `Done: ${n} speaker${n === 1 ? "" : "s"}, ${fmtClock(job.durationSec)} long` : "Done: no speech found");
+}
+
 /// One text box per detected speaker; names flow into the transcript view
 /// and every export.
 function renderSpeakerNames(job) {
@@ -286,6 +292,7 @@ function renderSpeakerNames(job) {
 }
 
 function renderTranscript(job) {
+  if (job.editing) return renderTranscriptEdit(job);
   const container = job.el.querySelector(".job-transcript");
   container.replaceChildren();
   const rows = renameSpeakers(job.rows, job.names);
@@ -309,10 +316,59 @@ function renderTranscript(job) {
   container.hidden = false;
 }
 
+/// Row-level edit view: reassign a sentence's speaker (this is how you
+/// "merge" it into a neighboring turn -- toTurns collapses consecutive
+/// same-speaker rows back together once they agree) and fix up its text.
+/// Edits write straight into job.rows, which every export already reads
+/// fresh at download time.
+function renderTranscriptEdit(job) {
+  const container = job.el.querySelector(".job-transcript");
+  container.replaceChildren();
+  const originals = [...new Set(job.rows.map((r) => r.speaker_id))];
+  job.rows.forEach((row, i) => {
+    const line = document.createElement("div");
+    line.className = "edit-row";
+    line.style.setProperty("--hue", speakerHue(originals.indexOf(row.speaker_id)));
+
+    const select = document.createElement("select");
+    select.className = "edit-row-speaker";
+    for (const orig of originals) {
+      select.add(new Option(job.names[orig] || orig, orig, false, orig === row.speaker_id));
+    }
+    select.addEventListener("change", () => {
+      row.speaker_id = select.value;
+      updateDoneStatus(job);
+      renderSpeakerNames(job);
+      renderTranscript(job);
+    });
+
+    const when = document.createElement("span");
+    when.className = "turn-time edit-row-time";
+    when.textContent = `${fmtClock(row.timestamp_start)}-${fmtClock(row.timestamp_end)}`;
+
+    const text = document.createElement("textarea");
+    text.className = "edit-row-text";
+    text.rows = 1;
+    text.value = row.transcribed_text;
+    const resize = () => {
+      text.style.height = "auto";
+      text.style.height = text.scrollHeight + "px";
+    };
+    text.addEventListener("input", () => {
+      row.transcribed_text = text.value;
+      resize();
+    });
+
+    line.append(select, when, text);
+    container.append(line);
+    resize();
+  });
+  container.hidden = false;
+}
+
 function finishJob(job) {
   job.status = "done";
-  const n = speakerCount(job.rows);
-  setStatus(job, job.rows.length ? `Done: ${n} speaker${n === 1 ? "" : "s"}, ${fmtClock(job.durationSec)} long` : "Done: no speech found");
+  updateDoneStatus(job);
   job.el.dataset.status = "done";
 
   const exportsEl = job.el.querySelector(".job-exports");
@@ -324,6 +380,15 @@ function finishJob(job) {
     downloadJson(job.name, job.durationSec, rows(), { model: job.model, translated: job.translate }, `${baseName}_transcript.json`);
   exportsEl.querySelector(".export-srt").onclick = () => downloadSrt(rows(), `${baseName}_transcript.srt`);
   exportsEl.querySelector(".export-docx").onclick = () => downloadDocx(baseName, rows(), `${baseName}_transcript.docx`);
+
+  const editToggle = job.el.querySelector(".job-edit-toggle");
+  editToggle.hidden = !job.rows.length;
+  editToggle.onclick = () => {
+    job.editing = !job.editing;
+    editToggle.textContent = job.editing ? "Done editing" : "Edit transcript";
+    renderTranscript(job);
+  };
+
   renderSpeakerNames(job);
   renderTranscript(job);
 }
@@ -456,13 +521,14 @@ function addJob(file) {
       <button class="btn btn-sm export-json">JSON</button>
       <button class="btn btn-sm export-srt">SRT</button>
       <button class="btn btn-sm export-docx">DOCX</button>
+      <button class="btn btn-sm btn-ghost job-edit-toggle" hidden>Edit transcript</button>
     </div>
     <div class="job-speakers" hidden></div>
     <div class="job-transcript" hidden></div>
   `;
   li.querySelector(".job-name").textContent = file.name;
   jobList.appendChild(li);
-  const job = { name: file.name, file, el: li, rows: [], names: {}, durationSec: 0 };
+  const job = { name: file.name, file, el: li, rows: [], names: {}, durationSec: 0, editing: false };
   enqueue(job);
 }
 

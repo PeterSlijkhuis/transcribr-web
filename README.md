@@ -16,19 +16,47 @@ and a speaker-diarization pipeline (via [sherpa-onnx](https://github.com/k2-fsa/
 are compiled to WebAssembly and run as Web Workers on your own CPU. Drop in a
 file, get a transcript with speaker labels, done.
 
+## Privacy: is it really local?
+
+Yes. **Your audio and video files are never uploaded anywhere — to GitHub,
+to us, or to anyone.** transcribr-web is a static page with no backend and
+no analytics; decoding, diarization and transcription all run inside your
+own browser tab as WebAssembly.
+
+This isn't just a claim — it's checkable. The app makes exactly three kinds
+of network request, all one-directional *downloads*, and your files never
+appear in any of them:
+
+1. `engines/manifest.json` — a small same-origin JSON file listing engine URLs.
+2. The whisper.cpp / sherpa-onnx WASM engines and the Whisper model you pick,
+   downloaded once from Hugging Face and cached by the browser afterward.
+3. `coi-serviceworker.js` re-issues the page's own requests with different
+   response headers (needed for `SharedArrayBuffer`); it never adds a new
+   destination or new data.
+
+Your audio never goes through `fetch`, `XMLHttpRequest`, or any network
+call — it's decoded locally (`AudioContext`) and handed to the transcription
+engines only as in-memory `postMessage` data between your own browser tabs
+and workers. You can verify this yourself: open DevTools → Network while
+transcribing, or just read `app.js` and `engines/*.js` — there's no code
+path that sends file contents anywhere.
+
 ## Features
 
+- **A clear workflow** — settings, then files, then a queue with live
+  progress, then download, laid out as numbered steps on the page
 - **Transcription** — Whisper `tiny` (Fast) / `small` (Standard) / `medium`
   (Accurate), with optional translation to English
 - **Speaker diarization** — pyannote segmentation + TitaNet embeddings,
   merged onto the transcript by max time-overlap
+- **Edit the transcript** — reassign a sentence to a different speaker (the
+  way you'd merge it into a neighboring turn) and fix up wording, before
+  exporting; edits apply live, no separate save step
 - **Rename speakers** — turn "Speaker 1" into "Interviewer" before exporting
 - **Export** — CSV, JSON, SRT, DOCX (the CSV/JSON schema matches a companion
   desktop app, so output from either drops into the same analysis pipeline)
 - **Offline-friendly** — engines and models are cached in the browser
   (Cache API) after the first run
-- **Private by design** — nothing is uploaded; it's a static site with no
-  backend
 
 ## Run it locally
 
@@ -67,6 +95,9 @@ Recommended hardware per model, shown in the app next to the picker:
 - `merge.js` assigns each transcript segment to whichever speaker overlaps
   it the most, splitting segments that straddle a speaker change, then
   numbers speakers by first appearance
+- the transcript editor edits the same per-segment rows every exporter
+  reads, so a reassigned speaker or fixed-up sentence shows up in every
+  export immediately, with no separate save step
 - `export/` turns the merged rows into CSV, JSON, SRT, or a hand-built
   minimal DOCX
 

@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Transcription and speaker diarization that runs entirely in your browser. No server, no upload, nothing leaves your machine." />
+  <meta name="theme-color" content="#2a6db3" />
   <title>transcribr-web</title>
   <!-- Must load first: makes the page cross-origin-isolated on hosts that
        can't set COOP/COEP headers (GitHub Pages), reloading once if needed. -->
@@ -10,8 +12,10 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <h1>transcribr-web</h1>
-  <p class="subtitle">Transcription with speaker detection, entirely in your browser. Nothing you pick leaves your computer. Desktop Chrome or Edge.</p>
+  <header class="hero">
+    <h1>transcribr-web</h1>
+    <p class="subtitle">Transcription with speaker detection, entirely in your browser. Nothing you pick leaves your computer. Desktop Chrome or Edge.</p>
+  </header>
 
   <div id="compat-banner" class="banner banner-error" hidden></div>
   <div id="engine-banner" class="banner banner-info" hidden>
@@ -19,16 +23,33 @@
     <progress id="engine-progress" max="1" value="0" hidden></progress>
   </div>
 
-  <section id="picker">
-    <input type="file" id="file-input" accept="audio/*,video/*" multiple />
-    <div id="dropzone">Drop audio or video files here, or use the picker above.</div>
-  </section>
+  <section class="panel">
+    <label id="dropzone" for="file-input" class="dropzone">
+      <input type="file" id="file-input" accept="audio/*,video/*" multiple />
+      <span class="dropzone-icon" aria-hidden="true">&#8593;</span>
+      <span class="dropzone-text"><strong>Drop audio or video files here</strong><br />or click to choose files</span>
+    </label>
 
-  <section id="options">
-    <label>Speakers (0 = detect): <input type="number" id="num-speakers" min="0" max="20" value="0" /></label>
-    <label>Language (blank = detect): <input type="text" id="language" placeholder="e.g. en, nl" size="6" /></label>
-    <label>Model: <select id="model"></select></label>
-    <label><input type="checkbox" id="translate" /> Translate to English</label>
+    <div id="options" class="options">
+      <div class="field">
+        <label for="num-speakers">Speakers</label>
+        <input type="number" id="num-speakers" min="0" max="20" value="0" />
+        <p class="hint">0 = detect automatically</p>
+      </div>
+      <div class="field">
+        <label for="language">Language</label>
+        <input type="text" id="language" placeholder="e.g. en, nl" />
+        <p class="hint">Blank = detect automatically</p>
+      </div>
+      <div class="field field-wide">
+        <label for="model">Model</label>
+        <select id="model"></select>
+        <p class="hint" id="model-hint"></p>
+      </div>
+      <div class="field field-checkbox">
+        <label class="checkbox-label"><input type="checkbox" id="translate" /> Translate to English</label>
+      </div>
+    </div>
   </section>
 
   <ul id="job-list"></ul>

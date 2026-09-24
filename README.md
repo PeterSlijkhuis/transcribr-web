@@ -18,8 +18,8 @@ file, get a transcript with speaker labels, done.
 
 ## Features
 
-- **Transcription** — Whisper `tiny` / `base` / `small`, with optional
-  translation to English
+- **Transcription** — Whisper `tiny` (Fast) / `small` (Standard) / `medium`
+  (Accurate), with optional translation to English
 - **Speaker diarization** — pyannote segmentation + TitaNet embeddings,
   merged onto the transcript by max time-overlap
 - **Rename speakers** — turn "Speaker 1" into "Interviewer" before exporting
@@ -43,10 +43,18 @@ Any static server works as long as it sends
 headers, like GitHub Pages, `coi-serviceworker.js` adds them client-side.
 Opening `index.html` via `file://` does not work.
 
-The first file you transcribe downloads about 275 MB of engines and the
-standard model from Hugging Face (URLs in `engines/manifest.json`); the
-browser caches them after that. The tiny and small models are fetched from
-`ggerganov/whisper.cpp` on Hugging Face the first time they're picked.
+The first file you transcribe downloads about 320 MB of engines and the
+standard (`small`) model from Hugging Face (URLs in `engines/manifest.json`);
+the browser caches them after that. All three Whisper models are fetched
+from `ggerganov/whisper.cpp` on Hugging Face the first time they're picked.
+
+Recommended hardware per model, shown in the app next to the picker:
+
+| Model | Size | Hardware |
+| --- | --- | --- |
+| Fast (tiny) | 32 MB | Any laptop from the last decade; real-time or faster on one core |
+| Standard (small) | 190 MB | A 4+ core CPU from the last ~5 years; roughly real-time with 4 threads |
+| Accurate (medium) | 514 MB | An 8+ core CPU; several times slower than real-time |
 
 ## How it works
 

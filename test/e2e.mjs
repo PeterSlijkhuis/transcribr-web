@@ -111,19 +111,21 @@ try {
   assert.equal(docx.subarray(0, 2).toString("latin1"), "PK");
   assert.ok(docx.includes(Buffer.from("word/document.xml")), "DOCX lacks word/document.xml");
 
-  // Same file again with the "small" model.
-  await page.selectOption("#model", "small");
+  // Same file again with the "medium" model, to exercise the model-swap
+  // path in engines/whisper-worker.js (ensureModel only reloads when the
+  // URL actually changes from the default).
+  await page.selectOption("#model", "medium");
   await page.setInputFiles("#file-input", path.join(fixtures, expected.singleSpeaker.file));
   await waitForJobs(page, 3);
   await assertNoErrors(page);
   const third = await page.$(".job:nth-child(3)");
   assert.match(await third.$eval(".job-status", (e) => e.textContent), /^Done/);
-  const small = (await third.$eval(".job-transcript", (e) => e.textContent)).toLowerCase();
-  for (const w of expected.singleSpeaker.words) assert.ok(small.includes(w.toLowerCase()), `small model: missing "${w}" in: ${small}`);
-  const smallJson = JSON.parse((await grab(".export-json", 3)).toString("utf8"));
-  assert.equal(smallJson.whisper_model, "whisper.cpp ggml-small-q5_1 (wasm)");
+  const medium = (await third.$eval(".job-transcript", (e) => e.textContent)).toLowerCase();
+  for (const w of expected.singleSpeaker.words) assert.ok(medium.includes(w.toLowerCase()), `medium model: missing "${w}" in: ${medium}`);
+  const mediumJson = JSON.parse((await grab(".export-json", 3)).toString("utf8"));
+  assert.equal(mediumJson.whisper_model, "whisper.cpp ggml-medium-q5_0 (wasm)");
 
-  console.log(`PASS: expected words found (base and small); ${speakers.length} speakers; renamed speaker in exports; CSV/JSON/SRT/DOCX valid`);
+  console.log(`PASS: expected words found (small and medium); ${speakers.length} speakers; renamed speaker in exports; CSV/JSON/SRT/DOCX valid`);
 } catch (err) {
   // Leave enough in the CI log to diagnose without a rerun.
   const html = await context.pages()[0]?.innerHTML("#job-list").catch(() => "(page gone)");

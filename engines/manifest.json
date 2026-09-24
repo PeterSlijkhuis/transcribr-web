@@ -8,20 +8,23 @@
         "id": "tiny",
         "label": "Fast (tiny, 32 MB)",
         "name": "ggml-tiny-q5_1",
-        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin"
-      },
-      {
-        "id": "base",
-        "label": "Standard (base, 148 MB)",
-        "name": "ggml-base",
-        "url": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/whisper-ggml-base.bin",
-        "default": true
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin",
+        "hardware": "Any laptop from the last decade. Real-time or faster on a single core."
       },
       {
         "id": "small",
-        "label": "Accurate (small, 190 MB)",
+        "label": "Standard (small, 190 MB)",
         "name": "ggml-small-q5_1",
-        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin"
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
+        "default": true,
+        "hardware": "A 4+ core CPU from the last ~5 years. Roughly real-time with 4 threads."
+      },
+      {
+        "id": "medium",
+        "label": "Accurate (medium, 514 MB)",
+        "name": "ggml-medium-q5_0",
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin",
+        "hardware": "An 8+ core CPU. Several times slower than real-time; a 10-minute file can take 10-20 minutes."
       }
     ]
   },

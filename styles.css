@@ -110,6 +110,10 @@ body {
 }
 
 /* ---- Setup panel --------------------------------------------------------- */
+.panel,
+#queue-section {
+  position: relative;
+}
 .panel {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -118,12 +122,41 @@ body {
   padding: 1.25rem;
   margin: 1.5rem 0;
 }
+/* A connecting line down the left edge, behind each step's number badge,
+   so the three panels read as one sequence rather than three cards. */
+.panel::before,
+#queue-section::before {
+  content: "";
+  position: absolute;
+  left: 2.25rem;
+  top: -1.5rem;
+  width: 2px;
+  height: 1.5rem;
+  background: var(--border);
+}
+.panel:first-of-type::before {
+  content: none;
+}
 .step-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   margin: 0 0 0.15rem;
-  font-size: 1rem;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 1.1rem;
+  font-weight: 700;
 }
 #queue-section {
   margin: 1.5rem 0 0;

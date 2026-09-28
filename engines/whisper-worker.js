@@ -69,6 +69,13 @@ importScripts("fetch-cached.js");
       self.Module = {
         print: onPrint,
         printErr: onPrintErr,
+        // The engine's own glue hardcodes a 2000MB growable-memory ceiling
+        // (maximum:32e3 pages) when it constructs wasmMemory itself, which
+        // the medium model's per-thread compute buffers exceed ("Invalid
+        // typed array length" on a failed grow). Supplying our own with a
+        // higher ceiling short-circuits that: the glue's initMemory() uses
+        // Module.wasmMemory verbatim when present.
+        wasmMemory: new WebAssembly.Memory({ initial: 8192, maximum: 64000, shared: true }),
         locateFile: (path) => (path.endsWith(".wasm") ? wasmUrl : path),
         // pthread workers re-load the main script; without this they would
         // load this file (self.location) instead of the engine glue.

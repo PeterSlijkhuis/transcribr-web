@@ -504,9 +504,13 @@ function renderTranscriptEdit(job) {
 // Only one job's result (rename panel + transcript) is expanded at a time,
 // so finishing a long queue doesn't leave every result's full text sitting
 // open at once -- collapse the rest whenever one opens.
+function isCollapsed(el) {
+  return el.hasAttribute("data-collapsed");
+}
+
 function collapseAllResults() {
-  jobList.querySelectorAll(".job-result:not([hidden])").forEach((wrap) => {
-    wrap.hidden = true;
+  jobList.querySelectorAll(".job-result:not([data-collapsed])").forEach((wrap) => {
+    setCollapsed(wrap, true);
     const toggle = wrap.closest(".job").querySelector(".job-view-toggle");
     if (toggle) toggle.textContent = "View transcript";
   });
@@ -514,7 +518,7 @@ function collapseAllResults() {
 
 function expandResult(job) {
   collapseAllResults();
-  job.el.querySelector(".job-result").hidden = false;
+  setCollapsed(job.el.querySelector(".job-result"), false);
   job.el.querySelector(".job-view-toggle").textContent = "Hide transcript";
 }
 
@@ -536,7 +540,7 @@ function finishJob(job) {
   const editToggle = job.el.querySelector(".job-edit-toggle");
   editToggle.hidden = !job.rows.length;
   editToggle.onclick = () => {
-    if (job.el.querySelector(".job-result").hidden) expandResult(job);
+    if (isCollapsed(job.el.querySelector(".job-result"))) expandResult(job);
     job.editing = !job.editing;
     editToggle.textContent = job.editing ? "Done editing" : "Edit transcript";
     renderTranscript(job);
@@ -545,9 +549,9 @@ function finishJob(job) {
   const viewToggle = job.el.querySelector(".job-view-toggle");
   viewToggle.hidden = !job.rows.length;
   viewToggle.onclick = () => {
-    if (job.el.querySelector(".job-result").hidden) expandResult(job);
+    if (isCollapsed(job.el.querySelector(".job-result"))) expandResult(job);
     else {
-      job.el.querySelector(".job-result").hidden = true;
+      setCollapsed(job.el.querySelector(".job-result"), true);
       viewToggle.textContent = "View transcript";
     }
   };
@@ -556,7 +560,7 @@ function finishJob(job) {
   renderTranscript(job);
   // Don't steal focus from a result the user already has open; only default
   // to showing the one that just finished when nothing else is expanded.
-  if (job.rows.length && !jobList.querySelector(".job-result:not([hidden])")) expandResult(job);
+  if (job.rows.length && !jobList.querySelector(".job-result:not([data-collapsed])")) expandResult(job);
 }
 
 function failJob(job, message) {
@@ -696,15 +700,25 @@ function addJob(file) {
       <button class="btn btn-sm export-docx">DOCX</button>
       <button class="btn btn-sm btn-ghost job-edit-toggle" hidden>Edit transcript</button>
     </div>
-    <div class="job-result" hidden>
-      <div class="job-speakers" hidden></div>
-      <div class="job-transcript" hidden></div>
+    <div class="job-result" data-collapsed inert>
+      <div class="collapsible-inner">
+        <div class="job-speakers" hidden></div>
+        <div class="job-transcript" hidden></div>
+      </div>
     </div>
   `;
   li.querySelector(".job-name").textContent = file.name;
   jobList.appendChild(li);
   const job = { name: file.name, file, el: li, rows: [], names: {}, extraSpeakers: [], durationSec: 0, editing: false };
   enqueue(job);
+}
+
+// Collapsing an element animates (CSS grid-rows trick on .collapsible-inner)
+// instead of an instant `hidden` toggle; `inert` keeps it out of the tab
+// order and off-limits while collapsed, since layout alone doesn't.
+function setCollapsed(el, collapsed) {
+  el.toggleAttribute("data-collapsed", collapsed);
+  el.toggleAttribute("inert", collapsed);
 }
 
 // Folding the Settings panel once files start queuing keeps the page from
@@ -715,7 +729,7 @@ let settingsAutoFolded = false;
 function foldPanel(controlsId) {
   const toggle = document.querySelector(`.panel-toggle[aria-controls="${controlsId}"]`);
   toggle.setAttribute("aria-expanded", "false");
-  document.getElementById(controlsId).hidden = true;
+  setCollapsed(document.getElementById(controlsId), true);
 }
 
 function queueFiles(fileList) {
@@ -748,7 +762,7 @@ document.querySelectorAll(".panel-toggle").forEach((toggle) => {
     const body = document.getElementById(toggle.getAttribute("aria-controls"));
     const wasExpanded = toggle.getAttribute("aria-expanded") !== "false";
     toggle.setAttribute("aria-expanded", String(!wasExpanded));
-    body.hidden = wasExpanded;
+    setCollapsed(body, wasExpanded);
   });
 });
 

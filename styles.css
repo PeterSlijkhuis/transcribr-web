@@ -208,6 +208,25 @@ body {
   margin-top: 0.6rem;
 }
 
+/* Animated collapse: a grid row transitions between 1fr and 0fr, clipped by
+   the single child's overflow -- no JS height measuring needed. `inert` (set
+   in app.js alongside data-collapsed) keeps collapsed content out of the tab
+   order, since a squashed grid row doesn't do that on its own. */
+.panel-body,
+.job-result {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.25s ease;
+}
+.panel-body[data-collapsed],
+.job-result[data-collapsed] {
+  grid-template-rows: 0fr;
+}
+.collapsible-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
 .dropzone {
   display: flex;
   flex-direction: column;
@@ -218,7 +237,7 @@ body {
   padding: 2rem 1rem;
   text-align: center;
   cursor: pointer;
-  transition: border-color 0.15s ease, background-color 0.15s ease;
+  transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
 }
 .dropzone:hover {
   border-color: var(--accent);
@@ -230,11 +249,17 @@ body {
 .dropzone.dragover {
   border-color: var(--accent);
   background: var(--accent-soft);
+  transform: scale(1.015);
 }
 .dropzone-icon {
   font-size: 1.5rem;
   color: var(--accent);
   line-height: 1;
+  transition: transform 0.15s ease;
+}
+.dropzone.dragover .dropzone-icon {
+  transform: translateY(-3px);
+}
 }
 .dropzone-text {
   color: var(--muted);
@@ -309,10 +334,11 @@ body {
   background: var(--accent);
   color: var(--accent-fg);
   cursor: pointer;
-  transition: filter 0.1s ease;
+  transition: filter 0.1s ease, transform 0.1s ease;
 }
 .btn:hover {
   filter: brightness(1.08);
+  transform: translateY(-1px);
 }
 .btn:active {
   filter: brightness(0.95);
@@ -348,10 +374,17 @@ body {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: 0.85rem 1rem;
-  transition: border-color 0.2s ease, box-shadow 0.15s ease;
+  transition: border-color 0.2s ease, box-shadow 0.15s ease, opacity 0.3s ease, transform 0.3s ease;
 }
 .job:hover {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+/* A newly added job eases in instead of just appearing. */
+@starting-style {
+  .job {
+    opacity: 0;
+    transform: translateY(6px);
+  }
 }
 .job[data-status="processing"],
 .job[data-status="queued"] {
@@ -376,6 +409,12 @@ body {
   width: 100%;
   margin-top: 0.5rem;
   accent-color: var(--accent);
+}
+.job-progress::-webkit-progress-value {
+  transition: width 0.2s ease;
+}
+#engine-progress::-webkit-progress-value {
+  transition: width 0.2s ease;
 }
 .job-error {
   color: var(--error-fg);

@@ -102,7 +102,7 @@ try {
   // Only one job's result panel is expanded at a time; open job 2's before
   // interacting with anything inside it.
   await page.click(".job:nth-child(2) .job-view-toggle");
-  assert.equal(await page.getAttribute(".job:nth-child(2) .job-result", "hidden"), null, "job 2's result did not open");
+  assert.equal(await page.getAttribute(".job:nth-child(2) .job-result", "data-collapsed"), null, "job 2's result did not open");
 
   // Rename the first listed speaker (labels depend on diarization's cluster
   // ids, so don't assume which exist); the exports below must carry it.

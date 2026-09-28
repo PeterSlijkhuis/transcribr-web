@@ -149,15 +149,19 @@ try {
   assert.ok(editedLine, "edited row missing from re-exported CSV");
   assert.ok(editedLine.startsWith(`${targetLabel},`), `edited row not reassigned to "${targetLabel}": ${editedLine}`);
 
-  // Speaker add/remove and row merge/split, back in edit mode.
+  // Speaker add/remove and row merge/split, back in edit mode. Read the
+  // current speaker count fresh rather than reusing `speakers` from
+  // earlier: the reassignment above may have consolidated every row onto
+  // one speaker if the fixture only had one row per original speaker.
   await page.click(".job:nth-child(2) .job-edit-toggle");
   const speakerChips = page.locator(".job:nth-child(2) .job-speakers label");
   const chipsBefore = await speakerChips.count();
+  const rowOptionsBefore = await editRows.first().locator(".edit-row-speaker option").count();
   await page.locator(".job:nth-child(2) .job-speakers button", { hasText: "Add speaker" }).click();
   assert.equal(await speakerChips.count(), chipsBefore + 1, "add speaker did not add a chip");
   assert.equal(
     await editRows.first().locator(".edit-row-speaker option").count(),
-    speakers.length + 1,
+    rowOptionsBefore + 1,
     "new speaker missing from a row's speaker picker"
   );
   // It has no rows yet, so removing it again should just drop the chip.

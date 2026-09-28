@@ -25,42 +25,64 @@
   </div>
 
   <section class="panel">
-    <h2 class="step-heading">1. Settings</h2>
-    <div id="options" class="options">
-      <div class="field">
-        <label for="num-speakers">Speakers</label>
-        <input type="number" id="num-speakers" min="0" max="20" value="0" />
-        <p class="hint">0 = detect automatically</p>
+    <button type="button" class="step-heading panel-toggle" aria-expanded="true" aria-controls="settings-body">
+      <span class="step-num">1</span>Settings<span class="chevron" aria-hidden="true">&#9662;</span>
+    </button>
+    <div id="settings-body" class="panel-body">
+      <div class="collapsible-inner">
+      <div id="options" class="options">
+        <div class="field">
+          <label for="num-speakers">Speakers</label>
+          <input type="number" id="num-speakers" min="0" max="20" value="0" />
+          <p class="hint">0 = detect automatically</p>
+        </div>
+        <div class="field">
+          <label for="language">Language</label>
+          <input type="text" id="language" placeholder="e.g. en, nl" />
+          <p class="hint">Blank = detect automatically</p>
+        </div>
+        <div class="field field-wide">
+          <label for="model">Model</label>
+          <select id="model"></select>
+          <p class="hint" id="model-hint"></p>
+        </div>
+        <div class="field field-checkbox">
+          <label class="checkbox-label"><input type="checkbox" id="translate" /> Translate to English</label>
+        </div>
       </div>
-      <div class="field">
-        <label for="language">Language</label>
-        <input type="text" id="language" placeholder="e.g. en, nl" />
-        <p class="hint">Blank = detect automatically</p>
-      </div>
-      <div class="field field-wide">
-        <label for="model">Model</label>
-        <select id="model"></select>
-        <p class="hint" id="model-hint"></p>
-      </div>
-      <div class="field field-checkbox">
-        <label class="checkbox-label"><input type="checkbox" id="translate" /> Translate to English</label>
       </div>
     </div>
   </section>
 
   <section class="panel">
-    <h2 class="step-heading">2. Add your files</h2>
-    <label id="dropzone" for="file-input" class="dropzone">
-      <input type="file" id="file-input" accept="audio/*,video/*" multiple />
-      <span class="dropzone-icon" aria-hidden="true">&#8593;</span>
-      <span class="dropzone-text"><strong>Drop audio or video files here</strong><br />or click to choose files</span>
-    </label>
-    <p class="hint">Settings above apply to files as they start processing, so you can still adjust them per file.</p>
+    <button type="button" class="step-heading panel-toggle" aria-expanded="true" aria-controls="files-body">
+      <span class="step-num">2</span>Add your files<span class="chevron" aria-hidden="true">&#9662;</span>
+    </button>
+    <div id="files-body" class="panel-body">
+      <div class="collapsible-inner">
+      <label id="dropzone" for="file-input" class="dropzone">
+        <input type="file" id="file-input" accept="audio/*,video/*" multiple />
+        <span class="dropzone-icon" aria-hidden="true">&#8593;</span>
+        <span class="dropzone-text"><strong>Drop audio or video files here</strong><br />or click to choose files</span>
+      </label>
+      <p class="hint">Settings above apply to files as they start processing, so you can still adjust them per file.</p>
+      </div>
+    </div>
   </section>
 
   <section id="queue-section">
-    <h2 class="step-heading">3. Queue &amp; results</h2>
-    <ul id="job-list"></ul>
+    <button type="button" class="step-heading panel-toggle" aria-expanded="true" aria-controls="queue-body">
+      <span class="step-num">3</span>Queue &amp; results<span class="chevron" aria-hidden="true">&#9662;</span>
+    </button>
+    <div id="queue-body" class="panel-body">
+      <div class="collapsible-inner">
+      <div id="waiting-game">
+        <button type="button" id="game-toggle" class="btn btn-sm btn-ghost">&#127918; Play while you wait</button>
+        <canvas id="flappy-canvas" width="280" height="360" hidden></canvas>
+      </div>
+      <ul id="job-list"></ul>
+      </div>
+    </div>
   </section>
 
   <script type="module" src="app.js"></script>

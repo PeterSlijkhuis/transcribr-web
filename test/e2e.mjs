@@ -64,6 +64,14 @@ try {
   await page.goto(`http://localhost:${PORT}/index.html`);
   await page.waitForFunction(() => self.crossOriginIsolated === true, null, { timeout: 15_000 });
 
+  // The optional waiting-room game: doesn't touch transcription state, so
+  // check it in isolation before anything else runs.
+  await page.click("#game-toggle");
+  assert.equal(await page.getAttribute("#flappy-canvas", "hidden"), null, "game canvas did not open");
+  await page.click("#flappy-canvas"); // flap once, just to exercise the input handler
+  await page.click("#game-toggle");
+  assert.notEqual(await page.getAttribute("#flappy-canvas", "hidden"), null, "game canvas did not close");
+
   // The verified engine harness ran diarization with 2 clusters; the
   // fixtures are synthesized TTS voices, so pin the count rather than rely
   // on the auto-detect threshold for them.
@@ -73,6 +81,10 @@ try {
     path.join(fixtures, expected.singleSpeaker.file),
     path.join(fixtures, expected.twoSpeaker.file),
   ]);
+
+  // Adding files should fold the Settings panel out of the way (it's still
+  // reachable, just not auto-folded twice).
+  assert.equal(await page.getAttribute('[aria-controls="settings-body"]', "aria-expanded"), "false", "settings panel did not auto-fold");
 
   await waitForJobs(page, 2);
 
@@ -86,6 +98,11 @@ try {
   // two-speaker.wav: expected speaker count.
   const speakers = await jobs[1].$$eval(".turn-speaker", (els) => [...new Set(els.map((e) => e.textContent))]);
   assert.equal(speakers.length, expected.twoSpeaker.expectedSpeakerCount, `speakers: ${speakers.join(", ")}`);
+
+  // Only one job's result panel is expanded at a time; open job 2's before
+  // interacting with anything inside it.
+  await page.click(".job:nth-child(2) .job-view-toggle");
+  assert.equal(await page.getAttribute(".job:nth-child(2) .job-result", "data-collapsed"), null, "job 2's result did not open");
 
   // Rename the first listed speaker (labels depend on diarization's cluster
   // ids, so don't assume which exist); the exports below must carry it.
@@ -132,21 +149,64 @@ try {
   assert.ok(editedLine, "edited row missing from re-exported CSV");
   assert.ok(editedLine.startsWith(`${targetLabel},`), `edited row not reassigned to "${targetLabel}": ${editedLine}`);
 
-  // Same file again with the "medium" model, to exercise the model-swap
-  // path in engines/whisper-worker.js (ensureModel only reloads when the
-  // URL actually changes from the default).
-  await page.selectOption("#model", "medium");
+  // Speaker add/remove and row merge/split, back in edit mode. Read the
+  // current speaker count fresh rather than reusing `speakers` from
+  // earlier: the reassignment above may have consolidated every row onto
+  // one speaker if the fixture only had one row per original speaker.
+  await page.click(".job:nth-child(2) .job-edit-toggle");
+  const speakerChips = page.locator(".job:nth-child(2) .job-speakers label");
+  const chipsBefore = await speakerChips.count();
+  const rowOptionsBefore = await editRows.first().locator(".edit-row-speaker option").count();
+  await page.locator(".job:nth-child(2) .job-speakers button", { hasText: "Add speaker" }).click();
+  assert.equal(await speakerChips.count(), chipsBefore + 1, "add speaker did not add a chip");
+  assert.equal(
+    await editRows.first().locator(".edit-row-speaker option").count(),
+    rowOptionsBefore + 1,
+    "new speaker missing from a row's speaker picker"
+  );
+  // It has no rows yet, so removing it again should just drop the chip.
+  await page.locator(".job:nth-child(2) .job-speakers .speaker-remove").last().click();
+  assert.equal(await speakerChips.count(), chipsBefore, "remove speaker did not remove the chip");
+
+  const rowsBeforeMerge = await editRows.count();
+  if (rowsBeforeMerge > 1) {
+    const firstTextBefore = await editRows.first().locator(".edit-row-text").inputValue();
+    await editRows.first().locator("button", { hasText: "Merge with next" }).click();
+    assert.equal(await editRows.count(), rowsBeforeMerge - 1, "merge did not reduce the row count");
+    const mergedText = await editRows.first().locator(".edit-row-text").inputValue();
+    assert.ok(mergedText.startsWith(firstTextBefore), "merged row lost its original text");
+
+    // Split it back apart at roughly the midpoint.
+    const mergedTextarea = editRows.first().locator(".edit-row-text");
+    await mergedTextarea.click();
+    await mergedTextarea.evaluate((el, mid) => el.setSelectionRange(mid, mid), Math.floor(mergedText.length / 2));
+    await editRows.first().locator("button", { hasText: "Split at cursor" }).click();
+    assert.equal(await editRows.count(), rowsBeforeMerge, "split did not add a row back");
+  }
+  await page.click(".job:nth-child(2) .job-edit-toggle"); // Done editing
+
+  // Same file again with the "tiny" model, to exercise the model-swap path
+  // in engines/whisper-worker.js (ensureModel only reloads when the URL
+  // actually changes from the default). The "medium" tier is temporarily
+  // pulled from the manifest (see engines/manifest.json) -- its per-thread
+  // compute buffers exceed the WASM engine's hardcoded 2000MB memory
+  // ceiling, which is baked into the compiled binary itself and can't be
+  // raised from this app's JS; re-add it once the engine is rebuilt with a
+  // higher -s MAXIMUM_MEMORY. Settings auto-folded when the first files
+  // were added, so unfold it again to reach the model picker.
+  await page.click('[aria-controls="settings-body"]');
+  await page.selectOption("#model", "tiny");
   await page.setInputFiles("#file-input", path.join(fixtures, expected.singleSpeaker.file));
   await waitForJobs(page, 3);
   await assertNoErrors(page);
   const third = await page.$(".job:nth-child(3)");
   assert.match(await third.$eval(".job-status", (e) => e.textContent), /^Done/);
-  const medium = (await third.$eval(".job-transcript", (e) => e.textContent)).toLowerCase();
-  for (const w of expected.singleSpeaker.words) assert.ok(medium.includes(w.toLowerCase()), `medium model: missing "${w}" in: ${medium}`);
-  const mediumJson = JSON.parse((await grab(".export-json", 3)).toString("utf8"));
-  assert.equal(mediumJson.whisper_model, "whisper.cpp ggml-medium-q5_0 (wasm)");
+  const tiny = (await third.$eval(".job-transcript", (e) => e.textContent)).toLowerCase();
+  for (const w of expected.singleSpeaker.words) assert.ok(tiny.includes(w.toLowerCase()), `tiny model: missing "${w}" in: ${tiny}`);
+  const tinyJson = JSON.parse((await grab(".export-json", 3)).toString("utf8"));
+  assert.equal(tinyJson.whisper_model, "whisper.cpp ggml-tiny-q5_1 (wasm)");
 
-  console.log(`PASS: expected words found (small and medium); ${speakers.length} speakers; renamed speaker in exports; CSV/JSON/SRT/DOCX valid`);
+  console.log(`PASS: expected words found (small and tiny); ${speakers.length} speakers; renamed speaker in exports; CSV/JSON/SRT/DOCX valid`);
 } catch (err) {
   // Leave enough in the CI log to diagnose without a rerun.
   const html = await context.pages()[0]?.innerHTML("#job-list").catch(() => "(page gone)");

@@ -141,9 +141,46 @@ body {
   display: flex;
   align-items: center;
   gap: 0.6rem;
+  width: 100%;
   margin: 0 0 0.15rem;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
   font-size: 1.15rem;
   font-weight: 700;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.step-heading:hover {
+  color: var(--accent);
+}
+.step-heading .chevron {
+  margin-left: auto;
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+.step-heading[aria-expanded="false"] .chevron {
+  transform: rotate(-90deg);
+}
+.step-heading[aria-expanded="false"] {
+  margin-bottom: 0;
+}
+.panel-body[hidden] {
+  display: none;
+}
+
+#waiting-game {
+  margin-bottom: 0.75rem;
+}
+#flappy-canvas {
+  display: block;
+  margin-top: 0.5rem;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
 }
 .step-num {
   display: inline-flex;

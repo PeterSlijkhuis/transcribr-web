@@ -64,6 +64,14 @@ try {
   await page.goto(`http://localhost:${PORT}/index.html`);
   await page.waitForFunction(() => self.crossOriginIsolated === true, null, { timeout: 15_000 });
 
+  // The optional waiting-room game: doesn't touch transcription state, so
+  // check it in isolation before anything else runs.
+  await page.click("#game-toggle");
+  assert.equal(await page.getAttribute("#flappy-canvas", "hidden"), null, "game canvas did not open");
+  await page.click("#flappy-canvas"); // flap once, just to exercise the input handler
+  await page.click("#game-toggle");
+  assert.notEqual(await page.getAttribute("#flappy-canvas", "hidden"), null, "game canvas did not close");
+
   // The verified engine harness ran diarization with 2 clusters; the
   // fixtures are synthesized TTS voices, so pin the count rather than rely
   // on the auto-detect threshold for them.
@@ -73,6 +81,10 @@ try {
     path.join(fixtures, expected.singleSpeaker.file),
     path.join(fixtures, expected.twoSpeaker.file),
   ]);
+
+  // Adding files should fold the Settings panel out of the way (it's still
+  // reachable, just not auto-folded twice).
+  assert.equal(await page.getAttribute('[aria-controls="settings-body"]', "aria-expanded"), "false", "settings panel did not auto-fold");
 
   await waitForJobs(page, 2);
 

@@ -29,6 +29,7 @@
       <span class="step-num">1</span>Settings<span class="chevron" aria-hidden="true">&#9662;</span>
     </button>
     <div id="settings-body" class="panel-body">
+      <div class="collapsible-inner">
       <div id="options" class="options">
         <div class="field">
           <label for="num-speakers">Speakers</label>
@@ -49,6 +50,7 @@
           <label class="checkbox-label"><input type="checkbox" id="translate" /> Translate to English</label>
         </div>
       </div>
+      </div>
     </div>
   </section>
 
@@ -57,12 +59,14 @@
       <span class="step-num">2</span>Add your files<span class="chevron" aria-hidden="true">&#9662;</span>
     </button>
     <div id="files-body" class="panel-body">
+      <div class="collapsible-inner">
       <label id="dropzone" for="file-input" class="dropzone">
         <input type="file" id="file-input" accept="audio/*,video/*" multiple />
         <span class="dropzone-icon" aria-hidden="true">&#8593;</span>
         <span class="dropzone-text"><strong>Drop audio or video files here</strong><br />or click to choose files</span>
       </label>
       <p class="hint">Settings above apply to files as they start processing, so you can still adjust them per file.</p>
+      </div>
     </div>
   </section>
 
@@ -71,11 +75,13 @@
       <span class="step-num">3</span>Queue &amp; results<span class="chevron" aria-hidden="true">&#9662;</span>
     </button>
     <div id="queue-body" class="panel-body">
+      <div class="collapsible-inner">
       <div id="waiting-game">
         <button type="button" id="game-toggle" class="btn btn-sm btn-ghost">&#127918; Play while you wait</button>
         <canvas id="flappy-canvas" width="280" height="360" hidden></canvas>
       </div>
       <ul id="job-list"></ul>
+      </div>
     </div>
   </section>
 

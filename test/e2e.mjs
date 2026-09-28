@@ -185,28 +185,23 @@ try {
   }
   await page.click(".job:nth-child(2) .job-edit-toggle"); // Done editing
 
-  // Same file again with the "tiny" model, to exercise the model-swap path
-  // in engines/whisper-worker.js (ensureModel only reloads when the URL
-  // actually changes from the default). The "medium" tier is temporarily
-  // pulled from the manifest (see engines/manifest.json) -- its per-thread
-  // compute buffers exceed the WASM engine's hardcoded 2000MB memory
-  // ceiling, which is baked into the compiled binary itself and can't be
-  // raised from this app's JS; re-add it once the engine is rebuilt with a
-  // higher -s MAXIMUM_MEMORY. Settings auto-folded when the first files
-  // were added, so unfold it again to reach the model picker.
+  // Same file again with the "medium" model, to exercise the model-swap
+  // path in engines/whisper-worker.js (ensureModel only reloads when the
+  // URL actually changes from the default). Settings auto-folded when the
+  // first files were added, so unfold it again to reach the model picker.
   await page.click('[aria-controls="settings-body"]');
-  await page.selectOption("#model", "tiny");
+  await page.selectOption("#model", "medium");
   await page.setInputFiles("#file-input", path.join(fixtures, expected.singleSpeaker.file));
   await waitForJobs(page, 3);
   await assertNoErrors(page);
   const third = await page.$(".job:nth-child(3)");
   assert.match(await third.$eval(".job-status", (e) => e.textContent), /^Done/);
-  const tiny = (await third.$eval(".job-transcript", (e) => e.textContent)).toLowerCase();
-  for (const w of expected.singleSpeaker.words) assert.ok(tiny.includes(w.toLowerCase()), `tiny model: missing "${w}" in: ${tiny}`);
-  const tinyJson = JSON.parse((await grab(".export-json", 3)).toString("utf8"));
-  assert.equal(tinyJson.whisper_model, "whisper.cpp ggml-tiny-q5_1 (wasm)");
+  const medium = (await third.$eval(".job-transcript", (e) => e.textContent)).toLowerCase();
+  for (const w of expected.singleSpeaker.words) assert.ok(medium.includes(w.toLowerCase()), `medium model: missing "${w}" in: ${medium}`);
+  const mediumJson = JSON.parse((await grab(".export-json", 3)).toString("utf8"));
+  assert.equal(mediumJson.whisper_model, "whisper.cpp ggml-medium-q5_0 (wasm)");
 
-  console.log(`PASS: expected words found (small and tiny); ${speakers.length} speakers; renamed speaker in exports; CSV/JSON/SRT/DOCX valid`);
+  console.log(`PASS: expected words found (small and medium); ${speakers.length} speakers; renamed speaker in exports; CSV/JSON/SRT/DOCX valid`);
 } catch (err) {
   // Leave enough in the CI log to diagnose without a rerun.
   const html = await context.pages()[0]?.innerHTML("#job-list").catch(() => "(page gone)");

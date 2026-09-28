@@ -183,7 +183,9 @@ try {
 
   // Same file again with the "medium" model, to exercise the model-swap
   // path in engines/whisper-worker.js (ensureModel only reloads when the
-  // URL actually changes from the default).
+  // URL actually changes from the default). Settings auto-folded when the
+  // first files were added, so unfold it again to reach the model picker.
+  await page.click('[aria-controls="settings-body"]');
   await page.selectOption("#model", "medium");
   await page.setInputFiles("#file-input", path.join(fixtures, expected.singleSpeaker.file));
   await waitForJobs(page, 3);

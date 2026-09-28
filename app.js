@@ -291,16 +291,48 @@ function updateDoneStatus(job) {
   setStatus(job, job.rows.length ? `Done: ${n} speaker${n === 1 ? "" : "s"}, ${fmtClock(job.durationSec)} long` : "Done: no speech found");
 }
 
-/// One text box per detected speaker; names flow into the transcript view
-/// and every export.
+// Speakers actually used by a row, plus any added but not yet assigned to
+// one -- so a freshly added speaker still shows up as a choice.
+function allSpeakerIds(job) {
+  return [...new Set([...job.rows.map((r) => r.speaker_id), ...job.extraSpeakers])];
+}
+
+function addSpeaker(job) {
+  const used = allSpeakerIds(job);
+  let n = used.length + 1;
+  while (used.includes(`speaker_${n}`)) n++;
+  job.extraSpeakers.push(`speaker_${n}`);
+  renderSpeakerNames(job);
+  renderTranscript(job);
+}
+
+// Removing a speaker moves its rows onto whichever other speaker sorts
+// first -- the same place you'd send them by hand, one at a time. The last
+// remaining speaker can't be removed, so there's always somewhere for them
+// to go.
+function removeSpeaker(job, id) {
+  const others = allSpeakerIds(job).filter((s) => s !== id);
+  if (!others.length) return;
+  const fallback = others.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))[0];
+  for (const row of job.rows) {
+    if (row.speaker_id === id) row.speaker_id = fallback;
+  }
+  delete job.names[id];
+  job.extraSpeakers = job.extraSpeakers.filter((s) => s !== id);
+  updateDoneStatus(job);
+  renderSpeakerNames(job);
+  renderTranscript(job);
+}
+
+/// One text box per known speaker (used or manually added); names flow
+/// into the transcript view and every export. Also where speakers get
+/// added and removed.
 function renderSpeakerNames(job) {
   const container = job.el.querySelector(".job-speakers");
   container.replaceChildren();
-  const originals = [...new Set(job.rows.map((r) => r.speaker_id))].sort((a, b) =>
-    a.localeCompare(b, undefined, { numeric: true })
-  );
+  const originals = allSpeakerIds(job).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   if (!originals.length) return;
-  container.append("Rename speakers:");
+  container.append("Speakers:");
   originals.forEach((orig, i) => {
     const label = document.createElement("label");
     label.style.setProperty("--hue", speakerHue(i));
@@ -315,8 +347,26 @@ function renderSpeakerNames(job) {
       renderTranscript(job);
     });
     label.append(input);
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "btn btn-sm btn-ghost speaker-remove";
+    removeBtn.textContent = "×";
+    removeBtn.title = `Remove ${job.names[orig] || orig}`;
+    removeBtn.disabled = originals.length < 2;
+    removeBtn.addEventListener("click", () => removeSpeaker(job, orig));
+    label.append(removeBtn);
+
     container.append(label);
   });
+
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.className = "btn btn-sm btn-ghost";
+  addBtn.textContent = "+ Add speaker";
+  addBtn.addEventListener("click", () => addSpeaker(job));
+  container.append(addBtn);
+
   container.hidden = false;
 }
 
@@ -345,15 +395,52 @@ function renderTranscript(job) {
   container.hidden = false;
 }
 
-/// Row-level edit view: reassign a sentence's speaker (this is how you
-/// "merge" it into a neighboring turn -- toTurns collapses consecutive
-/// same-speaker rows back together once they agree) and fix up its text.
-/// Edits write straight into job.rows, which every export already reads
-/// fresh at download time.
+// Merges row i's text and time range into row i+1, keeping row i's
+// speaker -- the direct version of what reassigning a speaker already does
+// indirectly (toTurns collapses agreeing neighbors back together).
+function mergeRowWithNext(job, i) {
+  const rows = job.rows;
+  if (i + 1 >= rows.length) return;
+  const a = rows[i];
+  const b = rows[i + 1];
+  a.transcribed_text = [a.transcribed_text, b.transcribed_text].filter(Boolean).join(" ");
+  a.timestamp_end = b.timestamp_end;
+  rows.splice(i + 1, 1);
+  updateDoneStatus(job);
+  renderSpeakerNames(job);
+  renderTranscript(job);
+}
+
+// Splits row i's text into two rows at a character offset (the textarea's
+// cursor position). Whisper only gives a start/end for the whole segment,
+// so the time boundary is estimated proportionally by text length -- close
+// enough to navigate by, not a claim of exact timing.
+function splitRow(job, i, splitAt) {
+  const row = job.rows[i];
+  const text = row.transcribed_text;
+  const before = text.slice(0, splitAt).trim();
+  const after = text.slice(splitAt).trim();
+  if (!before || !after) return;
+  const mid = row.timestamp_start + (row.timestamp_end - row.timestamp_start) * (splitAt / text.length);
+  job.rows.splice(
+    i,
+    1,
+    { ...row, transcribed_text: before, timestamp_end: mid },
+    { ...row, transcribed_text: after, timestamp_start: mid }
+  );
+  updateDoneStatus(job);
+  renderSpeakerNames(job);
+  renderTranscript(job);
+}
+
+/// Row-level edit view: reassign a sentence's speaker, merge it into a
+/// neighboring row, split it into two, or fix up its text. Edits write
+/// straight into job.rows, which every export already reads fresh at
+/// download time.
 function renderTranscriptEdit(job) {
   const container = job.el.querySelector(".job-transcript");
   container.replaceChildren();
-  const originals = [...new Set(job.rows.map((r) => r.speaker_id))];
+  const originals = allSpeakerIds(job);
   job.rows.forEach((row, i) => {
     const line = document.createElement("div");
     line.className = "edit-row";
@@ -388,11 +475,47 @@ function renderTranscriptEdit(job) {
       resize();
     });
 
-    line.append(select, when, text);
+    const tools = document.createElement("div");
+    tools.className = "edit-row-tools";
+    const splitBtn = document.createElement("button");
+    splitBtn.type = "button";
+    splitBtn.className = "btn btn-sm btn-ghost";
+    splitBtn.textContent = "Split at cursor";
+    splitBtn.addEventListener("click", () => {
+      if (text.selectionStart > 0 && text.selectionStart < text.value.length) splitRow(job, i, text.selectionStart);
+    });
+    tools.append(splitBtn);
+    if (i + 1 < job.rows.length) {
+      const mergeBtn = document.createElement("button");
+      mergeBtn.type = "button";
+      mergeBtn.className = "btn btn-sm btn-ghost";
+      mergeBtn.textContent = "Merge with next ↓";
+      mergeBtn.addEventListener("click", () => mergeRowWithNext(job, i));
+      tools.append(mergeBtn);
+    }
+
+    line.append(select, when, text, tools);
     container.append(line);
     resize();
   });
   container.hidden = false;
+}
+
+// Only one job's result (rename panel + transcript) is expanded at a time,
+// so finishing a long queue doesn't leave every result's full text sitting
+// open at once -- collapse the rest whenever one opens.
+function collapseAllResults() {
+  jobList.querySelectorAll(".job-result:not([hidden])").forEach((wrap) => {
+    wrap.hidden = true;
+    const toggle = wrap.closest(".job").querySelector(".job-view-toggle");
+    if (toggle) toggle.textContent = "View transcript";
+  });
+}
+
+function expandResult(job) {
+  collapseAllResults();
+  job.el.querySelector(".job-result").hidden = false;
+  job.el.querySelector(".job-view-toggle").textContent = "Hide transcript";
 }
 
 function finishJob(job) {
@@ -413,13 +536,27 @@ function finishJob(job) {
   const editToggle = job.el.querySelector(".job-edit-toggle");
   editToggle.hidden = !job.rows.length;
   editToggle.onclick = () => {
+    if (job.el.querySelector(".job-result").hidden) expandResult(job);
     job.editing = !job.editing;
     editToggle.textContent = job.editing ? "Done editing" : "Edit transcript";
     renderTranscript(job);
   };
 
+  const viewToggle = job.el.querySelector(".job-view-toggle");
+  viewToggle.hidden = !job.rows.length;
+  viewToggle.onclick = () => {
+    if (job.el.querySelector(".job-result").hidden) expandResult(job);
+    else {
+      job.el.querySelector(".job-result").hidden = true;
+      viewToggle.textContent = "View transcript";
+    }
+  };
+
   renderSpeakerNames(job);
   renderTranscript(job);
+  // Don't steal focus from a result the user already has open; only default
+  // to showing the one that just finished when nothing else is expanded.
+  if (job.rows.length && !jobList.querySelector(".job-result:not([hidden])")) expandResult(job);
 }
 
 function failJob(job, message) {
@@ -550,6 +687,7 @@ function addJob(file) {
     <progress class="job-progress" max="1" value="0" hidden></progress>
     <div class="job-error"></div>
     <button class="btn btn-sm job-retry" hidden>Retry</button>
+    <button class="btn btn-sm btn-ghost job-view-toggle" hidden>View transcript</button>
     <div class="job-exports" hidden>
       <span class="job-exports-label">Download:</span>
       <button class="btn btn-sm export-csv">CSV</button>
@@ -558,12 +696,14 @@ function addJob(file) {
       <button class="btn btn-sm export-docx">DOCX</button>
       <button class="btn btn-sm btn-ghost job-edit-toggle" hidden>Edit transcript</button>
     </div>
-    <div class="job-speakers" hidden></div>
-    <div class="job-transcript" hidden></div>
+    <div class="job-result" hidden>
+      <div class="job-speakers" hidden></div>
+      <div class="job-transcript" hidden></div>
+    </div>
   `;
   li.querySelector(".job-name").textContent = file.name;
   jobList.appendChild(li);
-  const job = { name: file.name, file, el: li, rows: [], names: {}, durationSec: 0, editing: false };
+  const job = { name: file.name, file, el: li, rows: [], names: {}, extraSpeakers: [], durationSec: 0, editing: false };
   enqueue(job);
 }
 

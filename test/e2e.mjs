@@ -99,6 +99,11 @@ try {
   const speakers = await jobs[1].$$eval(".turn-speaker", (els) => [...new Set(els.map((e) => e.textContent))]);
   assert.equal(speakers.length, expected.twoSpeaker.expectedSpeakerCount, `speakers: ${speakers.join(", ")}`);
 
+  // Only one job's result panel is expanded at a time; open job 2's before
+  // interacting with anything inside it.
+  await page.click(".job:nth-child(2) .job-view-toggle");
+  assert.equal(await page.getAttribute(".job:nth-child(2) .job-result", "hidden"), null, "job 2's result did not open");
+
   // Rename the first listed speaker (labels depend on diarization's cluster
   // ids, so don't assume which exist); the exports below must carry it.
   const renameInput = page.locator(".job:nth-child(2) .job-speakers input").first();
@@ -143,6 +148,38 @@ try {
   const editedLine = editedCsv.split("\n").find((l) => l.includes("EDITEDMARK"));
   assert.ok(editedLine, "edited row missing from re-exported CSV");
   assert.ok(editedLine.startsWith(`${targetLabel},`), `edited row not reassigned to "${targetLabel}": ${editedLine}`);
+
+  // Speaker add/remove and row merge/split, back in edit mode.
+  await page.click(".job:nth-child(2) .job-edit-toggle");
+  const speakerChips = page.locator(".job:nth-child(2) .job-speakers label");
+  const chipsBefore = await speakerChips.count();
+  await page.locator(".job:nth-child(2) .job-speakers button", { hasText: "Add speaker" }).click();
+  assert.equal(await speakerChips.count(), chipsBefore + 1, "add speaker did not add a chip");
+  assert.equal(
+    await editRows.first().locator(".edit-row-speaker option").count(),
+    speakers.length + 1,
+    "new speaker missing from a row's speaker picker"
+  );
+  // It has no rows yet, so removing it again should just drop the chip.
+  await page.locator(".job:nth-child(2) .job-speakers .speaker-remove").last().click();
+  assert.equal(await speakerChips.count(), chipsBefore, "remove speaker did not remove the chip");
+
+  const rowsBeforeMerge = await editRows.count();
+  if (rowsBeforeMerge > 1) {
+    const firstTextBefore = await editRows.first().locator(".edit-row-text").inputValue();
+    await editRows.first().locator("button", { hasText: "Merge with next" }).click();
+    assert.equal(await editRows.count(), rowsBeforeMerge - 1, "merge did not reduce the row count");
+    const mergedText = await editRows.first().locator(".edit-row-text").inputValue();
+    assert.ok(mergedText.startsWith(firstTextBefore), "merged row lost its original text");
+
+    // Split it back apart at roughly the midpoint.
+    const mergedTextarea = editRows.first().locator(".edit-row-text");
+    await mergedTextarea.click();
+    await mergedTextarea.evaluate((el, mid) => el.setSelectionRange(mid, mid), Math.floor(mergedText.length / 2));
+    await editRows.first().locator("button", { hasText: "Split at cursor" }).click();
+    assert.equal(await editRows.count(), rowsBeforeMerge, "split did not add a row back");
+  }
+  await page.click(".job:nth-child(2) .job-edit-toggle"); // Done editing
 
   // Same file again with the "medium" model, to exercise the model-swap
   // path in engines/whisper-worker.js (ensureModel only reloads when the

@@ -55,6 +55,13 @@
 * {
   box-sizing: border-box;
 }
+/* A class rule that sets its own `display` (.job-exports, .job-speakers,
+   ...) otherwise beats the `hidden` attribute's UA-stylesheet `display:
+   none` in the cascade -- same specificity, author styles win. This kept
+   download buttons visible on jobs that weren't done yet. */
+[hidden] {
+  display: none !important;
+}
 body {
   max-width: 800px;
   margin: 0 auto;
@@ -167,10 +174,6 @@ body {
 .step-heading[aria-expanded="false"] {
   margin-bottom: 0;
 }
-.panel-body[hidden] {
-  display: none;
-}
-
 #waiting-game {
   margin-bottom: 0.75rem;
 }
@@ -311,6 +314,10 @@ body {
 .btn:hover {
   filter: brightness(1.08);
 }
+.btn:active {
+  filter: brightness(0.95);
+  transform: translateY(1px);
+}
 .btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -341,6 +348,10 @@ body {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: 0.85rem 1rem;
+  transition: border-color 0.2s ease, box-shadow 0.15s ease;
+}
+.job:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 .job[data-status="processing"],
 .job[data-status="queued"] {
@@ -359,7 +370,7 @@ body {
 .job-status {
   color: var(--muted);
   font-size: 0.9rem;
-  margin-top: 0.1rem;
+  margin-top: 0.15rem;
 }
 .job-progress {
   width: 100%;
@@ -372,6 +383,9 @@ body {
 .job-retry {
   margin-top: 0.5rem;
 }
+.job-view-toggle {
+  margin-top: 0.6rem;
+}
 .job-exports {
   margin: 0.6rem 0;
   display: flex;
@@ -383,6 +397,9 @@ body {
   color: var(--muted);
   font-size: 0.85rem;
   margin-right: 0.2rem;
+}
+.job-result {
+  margin-top: 0.4rem;
 }
 .job-transcript {
   max-height: 400px;
@@ -442,6 +459,15 @@ body {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+.edit-row-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 0 0 auto;
+}
+.edit-row-tools .btn {
+  white-space: nowrap;
+}
 .job-warning {
   background: var(--warn-bg);
   color: var(--warn-fg);
@@ -476,6 +502,15 @@ body {
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--text);
+}
+.speaker-remove {
+  margin-left: 0.3rem;
+  padding: 0 0.4rem;
+  font-weight: 700;
+}
+.speaker-remove:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
 @media (max-width: 480px) {

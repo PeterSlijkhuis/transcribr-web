@@ -10,6 +10,7 @@ import { downloadCsv } from "./export/csv.js";
 import { downloadJson } from "./export/json.js";
 import { downloadSrt } from "./export/srt.js";
 import { downloadDocx } from "./export/docx.js";
+import { mountFlappyGame } from "./flappy.js";
 
 const SAMPLE_RATE = 16000; // both engines take 16kHz mono
 const LONG_RECORDING_WARN_SEC = 60 * 60; // soft warning threshold, see spec
@@ -195,7 +196,7 @@ function fillModelPicker(m) {
   updateModelHint(m);
 }
 
-async function ensureEngines() {
+async function ensureEngines(job) {
   fillModelPicker(await loadManifest());
   if (sherpa.loading && whisper.loading) {
     // Already loaded by an earlier job (jobs run one at a time).
@@ -205,10 +206,16 @@ async function ensureEngines() {
   engineBanner.hidden = false;
   engineStatus.textContent = "Loading engines...";
   engineProgress.hidden = true;
+  // The engine download reports real loaded/total bytes -- mirror that
+  // onto the job's own bar too, not just the page-level banner.
+  const onProgress = (p) => {
+    showEngineProgress(p);
+    if (job) setStatus(job, `Downloading ${p.label}`, p.total ? p.loaded / p.total : undefined);
+  };
   try {
     // One at a time so the banner shows a single, meaningful progress bar.
-    await sherpa.load(manifest, showEngineProgress);
-    await whisper.load(manifest, showEngineProgress);
+    await sherpa.load(manifest, onProgress);
+    await whisper.load(manifest, onProgress);
   } catch (err) {
     engineStatus.textContent = "Loading the engines failed: " + err.message;
     engineProgress.hidden = true;
@@ -250,6 +257,28 @@ function setStatus(job, stage, fraction) {
   const bar = job.el.querySelector(".job-progress");
   bar.hidden = fraction === undefined;
   if (fraction !== undefined) bar.value = fraction;
+}
+
+// Decoding and diarization report no progress of their own (the browser's
+// AudioContext and sherpa-onnx's diarization call are both black boxes
+// until they resolve), so estimate against a rough expected duration
+// instead of leaving the bar hidden for the whole step. Eases toward 92%
+// and holds -- it never claims done on its own, the real transition does.
+function startEstimatedProgress(job, stage, estimatedMs) {
+  stopEstimatedProgress(job);
+  const start = performance.now();
+  setStatus(job, stage, 0);
+  job.estimateTimer = setInterval(() => {
+    const elapsed = performance.now() - start;
+    setStatus(job, stage, Math.min(0.92, 1 - Math.exp((-3 * elapsed) / estimatedMs)));
+  }, 200);
+}
+
+function stopEstimatedProgress(job) {
+  if (job.estimateTimer) {
+    clearInterval(job.estimateTimer);
+    job.estimateTimer = null;
+  }
 }
 
 function speakerHue(index) {
@@ -394,6 +423,7 @@ function finishJob(job) {
 }
 
 function failJob(job, message) {
+  stopEstimatedProgress(job);
   job.status = "error";
   job.el.dataset.status = "error";
   setStatus(job, "Failed");
@@ -433,13 +463,15 @@ async function processJob(job) {
     throw new Error(`"${languageInput.value}" is not a language code; use a code like en or nl, or leave it blank`);
   }
 
-  setStatus(job, "Decoding audio");
+  startEstimatedProgress(job, "Decoding audio", 1500);
   let decoded;
   try {
     decoded = await decodeFileTo16kMono(job.file);
   } catch (err) {
+    stopEstimatedProgress(job);
     throw new Error("could not decode this file: " + ((err && err.message) || err));
   }
+  stopEstimatedProgress(job);
   const { samples, durationSec } = decoded;
   job.durationSec = durationSec;
   if (durationSec > LONG_RECORDING_WARN_SEC && !job.longOk) {
@@ -454,12 +486,15 @@ async function processJob(job) {
   }
 
   setStatus(job, "Loading engines");
-  await ensureEngines();
+  await ensureEngines(job);
 
-  setStatus(job, "Detecting speakers");
+  // sherpa-onnx's diarization call has no progress signal of its own;
+  // estimate against a rough multiple of the audio's own length.
+  startEstimatedProgress(job, "Detecting speakers", Math.max(1500, durationSec * 400));
   const numSpeakers = Math.max(0, parseInt(numSpeakersInput.value, 10) || 0);
   // Posted as a copy: the same samples go to whisper next.
   const diar = await sherpa.request({ type: "diarize", samples, numSpeakers });
+  stopEstimatedProgress(job);
   const dsegs = diar.segments.map((s) => ({ s: s.start, e: s.end, spk: s.speaker }));
 
   const model = manifest.whisper.models.find((m) => m.id === modelSelect.value) || manifest.whisper.models.find((m) => m.default);
@@ -532,9 +567,25 @@ function addJob(file) {
   enqueue(job);
 }
 
+// Folding the Settings panel once files start queuing keeps the page from
+// growing top-heavy without gating anything -- it stays one click away and
+// settings still apply live to whatever's picked when each job starts.
+let settingsAutoFolded = false;
+
+function foldPanel(controlsId) {
+  const toggle = document.querySelector(`.panel-toggle[aria-controls="${controlsId}"]`);
+  toggle.setAttribute("aria-expanded", "false");
+  document.getElementById(controlsId).hidden = true;
+}
+
 function queueFiles(fileList) {
   if (fileInput.disabled) return;
-  for (const file of Array.from(fileList)) addJob(file);
+  const files = Array.from(fileList);
+  for (const file of files) addJob(file);
+  if (!settingsAutoFolded && files.length) {
+    settingsAutoFolded = true;
+    foldPanel("settings-body");
+  }
 }
 
 fileInput.addEventListener("change", () => {
@@ -550,6 +601,31 @@ dropzone.addEventListener("drop", (e) => {
   e.preventDefault();
   dropzone.classList.remove("dragover");
   queueFiles(e.dataTransfer.files);
+});
+
+document.querySelectorAll(".panel-toggle").forEach((toggle) => {
+  toggle.addEventListener("click", () => {
+    const body = document.getElementById(toggle.getAttribute("aria-controls"));
+    const wasExpanded = toggle.getAttribute("aria-expanded") !== "false";
+    toggle.setAttribute("aria-expanded", String(!wasExpanded));
+    body.hidden = wasExpanded;
+  });
+});
+
+const gameToggle = document.getElementById("game-toggle");
+const flappyCanvas = document.getElementById("flappy-canvas");
+let stopGame = null;
+gameToggle.addEventListener("click", () => {
+  if (stopGame) {
+    stopGame();
+    stopGame = null;
+    flappyCanvas.hidden = true;
+    gameToggle.textContent = "\u{1F3AE} Play while you wait";
+  } else {
+    flappyCanvas.hidden = false;
+    gameToggle.textContent = "Hide game";
+    stopGame = mountFlappyGame(flappyCanvas);
+  }
 });
 
 if (checkCompat()) {

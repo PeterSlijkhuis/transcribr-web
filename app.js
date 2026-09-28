@@ -10,6 +10,7 @@ import { downloadCsv } from "./export/csv.js";
 import { downloadJson } from "./export/json.js";
 import { downloadSrt } from "./export/srt.js";
 import { downloadDocx } from "./export/docx.js";
+import { mountFlappyGame } from "./flappy.js";
 
 const SAMPLE_RATE = 16000; // both engines take 16kHz mono
 const LONG_RECORDING_WARN_SEC = 60 * 60; // soft warning threshold, see spec
@@ -195,7 +196,7 @@ function fillModelPicker(m) {
   updateModelHint(m);
 }
 
-async function ensureEngines() {
+async function ensureEngines(job) {
   fillModelPicker(await loadManifest());
   if (sherpa.loading && whisper.loading) {
     // Already loaded by an earlier job (jobs run one at a time).
@@ -205,10 +206,16 @@ async function ensureEngines() {
   engineBanner.hidden = false;
   engineStatus.textContent = "Loading engines...";
   engineProgress.hidden = true;
+  // The engine download reports real loaded/total bytes -- mirror that
+  // onto the job's own bar too, not just the page-level banner.
+  const onProgress = (p) => {
+    showEngineProgress(p);
+    if (job) setStatus(job, `Downloading ${p.label}`, p.total ? p.loaded / p.total : undefined);
+  };
   try {
     // One at a time so the banner shows a single, meaningful progress bar.
-    await sherpa.load(manifest, showEngineProgress);
-    await whisper.load(manifest, showEngineProgress);
+    await sherpa.load(manifest, onProgress);
+    await whisper.load(manifest, onProgress);
   } catch (err) {
     engineStatus.textContent = "Loading the engines failed: " + err.message;
     engineProgress.hidden = true;
@@ -252,6 +259,28 @@ function setStatus(job, stage, fraction) {
   if (fraction !== undefined) bar.value = fraction;
 }
 
+// Decoding and diarization report no progress of their own (the browser's
+// AudioContext and sherpa-onnx's diarization call are both black boxes
+// until they resolve), so estimate against a rough expected duration
+// instead of leaving the bar hidden for the whole step. Eases toward 92%
+// and holds -- it never claims done on its own, the real transition does.
+function startEstimatedProgress(job, stage, estimatedMs) {
+  stopEstimatedProgress(job);
+  const start = performance.now();
+  setStatus(job, stage, 0);
+  job.estimateTimer = setInterval(() => {
+    const elapsed = performance.now() - start;
+    setStatus(job, stage, Math.min(0.92, 1 - Math.exp((-3 * elapsed) / estimatedMs)));
+  }, 200);
+}
+
+function stopEstimatedProgress(job) {
+  if (job.estimateTimer) {
+    clearInterval(job.estimateTimer);
+    job.estimateTimer = null;
+  }
+}
+
 function speakerHue(index) {
   return String((index * 137 + 210) % 360);
 }
@@ -262,16 +291,48 @@ function updateDoneStatus(job) {
   setStatus(job, job.rows.length ? `Done: ${n} speaker${n === 1 ? "" : "s"}, ${fmtClock(job.durationSec)} long` : "Done: no speech found");
 }
 
-/// One text box per detected speaker; names flow into the transcript view
-/// and every export.
+// Speakers actually used by a row, plus any added but not yet assigned to
+// one -- so a freshly added speaker still shows up as a choice.
+function allSpeakerIds(job) {
+  return [...new Set([...job.rows.map((r) => r.speaker_id), ...job.extraSpeakers])];
+}
+
+function addSpeaker(job) {
+  const used = allSpeakerIds(job);
+  let n = used.length + 1;
+  while (used.includes(`speaker_${n}`)) n++;
+  job.extraSpeakers.push(`speaker_${n}`);
+  renderSpeakerNames(job);
+  renderTranscript(job);
+}
+
+// Removing a speaker moves its rows onto whichever other speaker sorts
+// first -- the same place you'd send them by hand, one at a time. The last
+// remaining speaker can't be removed, so there's always somewhere for them
+// to go.
+function removeSpeaker(job, id) {
+  const others = allSpeakerIds(job).filter((s) => s !== id);
+  if (!others.length) return;
+  const fallback = others.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))[0];
+  for (const row of job.rows) {
+    if (row.speaker_id === id) row.speaker_id = fallback;
+  }
+  delete job.names[id];
+  job.extraSpeakers = job.extraSpeakers.filter((s) => s !== id);
+  updateDoneStatus(job);
+  renderSpeakerNames(job);
+  renderTranscript(job);
+}
+
+/// One text box per known speaker (used or manually added); names flow
+/// into the transcript view and every export. Also where speakers get
+/// added and removed.
 function renderSpeakerNames(job) {
   const container = job.el.querySelector(".job-speakers");
   container.replaceChildren();
-  const originals = [...new Set(job.rows.map((r) => r.speaker_id))].sort((a, b) =>
-    a.localeCompare(b, undefined, { numeric: true })
-  );
+  const originals = allSpeakerIds(job).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   if (!originals.length) return;
-  container.append("Rename speakers:");
+  container.append("Speakers:");
   originals.forEach((orig, i) => {
     const label = document.createElement("label");
     label.style.setProperty("--hue", speakerHue(i));
@@ -286,8 +347,26 @@ function renderSpeakerNames(job) {
       renderTranscript(job);
     });
     label.append(input);
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "btn btn-sm btn-ghost speaker-remove";
+    removeBtn.textContent = "×";
+    removeBtn.title = `Remove ${job.names[orig] || orig}`;
+    removeBtn.disabled = originals.length < 2;
+    removeBtn.addEventListener("click", () => removeSpeaker(job, orig));
+    label.append(removeBtn);
+
     container.append(label);
   });
+
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.className = "btn btn-sm btn-ghost";
+  addBtn.textContent = "+ Add speaker";
+  addBtn.addEventListener("click", () => addSpeaker(job));
+  container.append(addBtn);
+
   container.hidden = false;
 }
 
@@ -316,15 +395,52 @@ function renderTranscript(job) {
   container.hidden = false;
 }
 
-/// Row-level edit view: reassign a sentence's speaker (this is how you
-/// "merge" it into a neighboring turn -- toTurns collapses consecutive
-/// same-speaker rows back together once they agree) and fix up its text.
-/// Edits write straight into job.rows, which every export already reads
-/// fresh at download time.
+// Merges row i's text and time range into row i+1, keeping row i's
+// speaker -- the direct version of what reassigning a speaker already does
+// indirectly (toTurns collapses agreeing neighbors back together).
+function mergeRowWithNext(job, i) {
+  const rows = job.rows;
+  if (i + 1 >= rows.length) return;
+  const a = rows[i];
+  const b = rows[i + 1];
+  a.transcribed_text = [a.transcribed_text, b.transcribed_text].filter(Boolean).join(" ");
+  a.timestamp_end = b.timestamp_end;
+  rows.splice(i + 1, 1);
+  updateDoneStatus(job);
+  renderSpeakerNames(job);
+  renderTranscript(job);
+}
+
+// Splits row i's text into two rows at a character offset (the textarea's
+// cursor position). Whisper only gives a start/end for the whole segment,
+// so the time boundary is estimated proportionally by text length -- close
+// enough to navigate by, not a claim of exact timing.
+function splitRow(job, i, splitAt) {
+  const row = job.rows[i];
+  const text = row.transcribed_text;
+  const before = text.slice(0, splitAt).trim();
+  const after = text.slice(splitAt).trim();
+  if (!before || !after) return;
+  const mid = row.timestamp_start + (row.timestamp_end - row.timestamp_start) * (splitAt / text.length);
+  job.rows.splice(
+    i,
+    1,
+    { ...row, transcribed_text: before, timestamp_end: mid },
+    { ...row, transcribed_text: after, timestamp_start: mid }
+  );
+  updateDoneStatus(job);
+  renderSpeakerNames(job);
+  renderTranscript(job);
+}
+
+/// Row-level edit view: reassign a sentence's speaker, merge it into a
+/// neighboring row, split it into two, or fix up its text. Edits write
+/// straight into job.rows, which every export already reads fresh at
+/// download time.
 function renderTranscriptEdit(job) {
   const container = job.el.querySelector(".job-transcript");
   container.replaceChildren();
-  const originals = [...new Set(job.rows.map((r) => r.speaker_id))];
+  const originals = allSpeakerIds(job);
   job.rows.forEach((row, i) => {
     const line = document.createElement("div");
     line.className = "edit-row";
@@ -359,11 +475,51 @@ function renderTranscriptEdit(job) {
       resize();
     });
 
-    line.append(select, when, text);
+    const tools = document.createElement("div");
+    tools.className = "edit-row-tools";
+    const splitBtn = document.createElement("button");
+    splitBtn.type = "button";
+    splitBtn.className = "btn btn-sm btn-ghost";
+    splitBtn.textContent = "Split at cursor";
+    splitBtn.addEventListener("click", () => {
+      if (text.selectionStart > 0 && text.selectionStart < text.value.length) splitRow(job, i, text.selectionStart);
+    });
+    tools.append(splitBtn);
+    if (i + 1 < job.rows.length) {
+      const mergeBtn = document.createElement("button");
+      mergeBtn.type = "button";
+      mergeBtn.className = "btn btn-sm btn-ghost";
+      mergeBtn.textContent = "Merge with next ↓";
+      mergeBtn.addEventListener("click", () => mergeRowWithNext(job, i));
+      tools.append(mergeBtn);
+    }
+
+    line.append(select, when, text, tools);
     container.append(line);
     resize();
   });
   container.hidden = false;
+}
+
+// Only one job's result (rename panel + transcript) is expanded at a time,
+// so finishing a long queue doesn't leave every result's full text sitting
+// open at once -- collapse the rest whenever one opens.
+function isCollapsed(el) {
+  return el.hasAttribute("data-collapsed");
+}
+
+function collapseAllResults() {
+  jobList.querySelectorAll(".job-result:not([data-collapsed])").forEach((wrap) => {
+    setCollapsed(wrap, true);
+    const toggle = wrap.closest(".job").querySelector(".job-view-toggle");
+    if (toggle) toggle.textContent = "View transcript";
+  });
+}
+
+function expandResult(job) {
+  collapseAllResults();
+  setCollapsed(job.el.querySelector(".job-result"), false);
+  job.el.querySelector(".job-view-toggle").textContent = "Hide transcript";
 }
 
 function finishJob(job) {
@@ -384,16 +540,31 @@ function finishJob(job) {
   const editToggle = job.el.querySelector(".job-edit-toggle");
   editToggle.hidden = !job.rows.length;
   editToggle.onclick = () => {
+    if (isCollapsed(job.el.querySelector(".job-result"))) expandResult(job);
     job.editing = !job.editing;
     editToggle.textContent = job.editing ? "Done editing" : "Edit transcript";
     renderTranscript(job);
   };
 
+  const viewToggle = job.el.querySelector(".job-view-toggle");
+  viewToggle.hidden = !job.rows.length;
+  viewToggle.onclick = () => {
+    if (isCollapsed(job.el.querySelector(".job-result"))) expandResult(job);
+    else {
+      setCollapsed(job.el.querySelector(".job-result"), true);
+      viewToggle.textContent = "View transcript";
+    }
+  };
+
   renderSpeakerNames(job);
   renderTranscript(job);
+  // Don't steal focus from a result the user already has open; only default
+  // to showing the one that just finished when nothing else is expanded.
+  if (job.rows.length && !jobList.querySelector(".job-result:not([data-collapsed])")) expandResult(job);
 }
 
 function failJob(job, message) {
+  stopEstimatedProgress(job);
   job.status = "error";
   job.el.dataset.status = "error";
   setStatus(job, "Failed");
@@ -433,13 +604,15 @@ async function processJob(job) {
     throw new Error(`"${languageInput.value}" is not a language code; use a code like en or nl, or leave it blank`);
   }
 
-  setStatus(job, "Decoding audio");
+  startEstimatedProgress(job, "Decoding audio", 1500);
   let decoded;
   try {
     decoded = await decodeFileTo16kMono(job.file);
   } catch (err) {
+    stopEstimatedProgress(job);
     throw new Error("could not decode this file: " + ((err && err.message) || err));
   }
+  stopEstimatedProgress(job);
   const { samples, durationSec } = decoded;
   job.durationSec = durationSec;
   if (durationSec > LONG_RECORDING_WARN_SEC && !job.longOk) {
@@ -454,12 +627,15 @@ async function processJob(job) {
   }
 
   setStatus(job, "Loading engines");
-  await ensureEngines();
+  await ensureEngines(job);
 
-  setStatus(job, "Detecting speakers");
+  // sherpa-onnx's diarization call has no progress signal of its own;
+  // estimate against a rough multiple of the audio's own length.
+  startEstimatedProgress(job, "Detecting speakers", Math.max(1500, durationSec * 400));
   const numSpeakers = Math.max(0, parseInt(numSpeakersInput.value, 10) || 0);
   // Posted as a copy: the same samples go to whisper next.
   const diar = await sherpa.request({ type: "diarize", samples, numSpeakers });
+  stopEstimatedProgress(job);
   const dsegs = diar.segments.map((s) => ({ s: s.start, e: s.end, spk: s.speaker }));
 
   const model = manifest.whisper.models.find((m) => m.id === modelSelect.value) || manifest.whisper.models.find((m) => m.default);
@@ -515,6 +691,7 @@ function addJob(file) {
     <progress class="job-progress" max="1" value="0" hidden></progress>
     <div class="job-error"></div>
     <button class="btn btn-sm job-retry" hidden>Retry</button>
+    <button class="btn btn-sm btn-ghost job-view-toggle" hidden>View transcript</button>
     <div class="job-exports" hidden>
       <span class="job-exports-label">Download:</span>
       <button class="btn btn-sm export-csv">CSV</button>
@@ -523,18 +700,46 @@ function addJob(file) {
       <button class="btn btn-sm export-docx">DOCX</button>
       <button class="btn btn-sm btn-ghost job-edit-toggle" hidden>Edit transcript</button>
     </div>
-    <div class="job-speakers" hidden></div>
-    <div class="job-transcript" hidden></div>
+    <div class="job-result" data-collapsed inert>
+      <div class="collapsible-inner">
+        <div class="job-speakers" hidden></div>
+        <div class="job-transcript" hidden></div>
+      </div>
+    </div>
   `;
   li.querySelector(".job-name").textContent = file.name;
   jobList.appendChild(li);
-  const job = { name: file.name, file, el: li, rows: [], names: {}, durationSec: 0, editing: false };
+  const job = { name: file.name, file, el: li, rows: [], names: {}, extraSpeakers: [], durationSec: 0, editing: false };
   enqueue(job);
+}
+
+// Collapsing an element animates (CSS grid-rows trick on .collapsible-inner)
+// instead of an instant `hidden` toggle; `inert` keeps it out of the tab
+// order and off-limits while collapsed, since layout alone doesn't.
+function setCollapsed(el, collapsed) {
+  el.toggleAttribute("data-collapsed", collapsed);
+  el.toggleAttribute("inert", collapsed);
+}
+
+// Folding the Settings panel once files start queuing keeps the page from
+// growing top-heavy without gating anything -- it stays one click away and
+// settings still apply live to whatever's picked when each job starts.
+let settingsAutoFolded = false;
+
+function foldPanel(controlsId) {
+  const toggle = document.querySelector(`.panel-toggle[aria-controls="${controlsId}"]`);
+  toggle.setAttribute("aria-expanded", "false");
+  setCollapsed(document.getElementById(controlsId), true);
 }
 
 function queueFiles(fileList) {
   if (fileInput.disabled) return;
-  for (const file of Array.from(fileList)) addJob(file);
+  const files = Array.from(fileList);
+  for (const file of files) addJob(file);
+  if (!settingsAutoFolded && files.length) {
+    settingsAutoFolded = true;
+    foldPanel("settings-body");
+  }
 }
 
 fileInput.addEventListener("change", () => {
@@ -550,6 +755,31 @@ dropzone.addEventListener("drop", (e) => {
   e.preventDefault();
   dropzone.classList.remove("dragover");
   queueFiles(e.dataTransfer.files);
+});
+
+document.querySelectorAll(".panel-toggle").forEach((toggle) => {
+  toggle.addEventListener("click", () => {
+    const body = document.getElementById(toggle.getAttribute("aria-controls"));
+    const wasExpanded = toggle.getAttribute("aria-expanded") !== "false";
+    toggle.setAttribute("aria-expanded", String(!wasExpanded));
+    setCollapsed(body, wasExpanded);
+  });
+});
+
+const gameToggle = document.getElementById("game-toggle");
+const flappyCanvas = document.getElementById("flappy-canvas");
+let stopGame = null;
+gameToggle.addEventListener("click", () => {
+  if (stopGame) {
+    stopGame();
+    stopGame = null;
+    flappyCanvas.hidden = true;
+    gameToggle.textContent = "\u{1F3AE} Play while you wait";
+  } else {
+    flappyCanvas.hidden = false;
+    gameToggle.textContent = "Hide game";
+    stopGame = mountFlappyGame(flappyCanvas);
+  }
 });
 
 if (checkCompat()) {

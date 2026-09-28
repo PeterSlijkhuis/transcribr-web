@@ -55,6 +55,13 @@
 * {
   box-sizing: border-box;
 }
+/* A class rule that sets its own `display` (.job-exports, .job-speakers,
+   ...) otherwise beats the `hidden` attribute's UA-stylesheet `display:
+   none` in the cascade -- same specificity, author styles win. This kept
+   download buttons visible on jobs that weren't done yet. */
+[hidden] {
+  display: none !important;
+}
 body {
   max-width: 800px;
   margin: 0 auto;
@@ -110,6 +117,10 @@ body {
 }
 
 /* ---- Setup panel --------------------------------------------------------- */
+.panel,
+#queue-section {
+  position: relative;
+}
 .panel {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -118,12 +129,74 @@ body {
   padding: 1.25rem;
   margin: 1.5rem 0;
 }
+/* A connecting line down the left edge, behind each step's number badge,
+   so the three panels read as one sequence rather than three cards. */
+.panel::before,
+#queue-section::before {
+  content: "";
+  position: absolute;
+  left: 2.25rem;
+  top: -1.5rem;
+  width: 2px;
+  height: 1.5rem;
+  background: var(--border);
+}
+.panel:first-of-type::before {
+  content: none;
+}
 .step-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
   margin: 0 0 0.15rem;
-  font-size: 1rem;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.step-heading:hover {
+  color: var(--accent);
+}
+.step-heading .chevron {
+  margin-left: auto;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  transition: transform 0.15s ease;
+}
+.step-heading[aria-expanded="false"] .chevron {
+  transform: rotate(-90deg);
+}
+.step-heading[aria-expanded="false"] {
+  margin-bottom: 0;
+}
+#waiting-game {
+  margin-bottom: 0.75rem;
+}
+#flappy-canvas {
+  display: block;
+  margin-top: 0.5rem;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 1.1rem;
+  font-weight: 700;
 }
 #queue-section {
   margin: 1.5rem 0 0;
@@ -133,6 +206,25 @@ body {
 }
 .panel > .hint {
   margin-top: 0.6rem;
+}
+
+/* Animated collapse: a grid row transitions between 1fr and 0fr, clipped by
+   the single child's overflow -- no JS height measuring needed. `inert` (set
+   in app.js alongside data-collapsed) keeps collapsed content out of the tab
+   order, since a squashed grid row doesn't do that on its own. */
+.panel-body,
+.job-result {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.25s ease;
+}
+.panel-body[data-collapsed],
+.job-result[data-collapsed] {
+  grid-template-rows: 0fr;
+}
+.collapsible-inner {
+  overflow: hidden;
+  min-height: 0;
 }
 
 .dropzone {
@@ -145,7 +237,7 @@ body {
   padding: 2rem 1rem;
   text-align: center;
   cursor: pointer;
-  transition: border-color 0.15s ease, background-color 0.15s ease;
+  transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
 }
 .dropzone:hover {
   border-color: var(--accent);
@@ -157,11 +249,17 @@ body {
 .dropzone.dragover {
   border-color: var(--accent);
   background: var(--accent-soft);
+  transform: scale(1.015);
 }
 .dropzone-icon {
   font-size: 1.5rem;
   color: var(--accent);
   line-height: 1;
+  transition: transform 0.15s ease;
+}
+.dropzone.dragover .dropzone-icon {
+  transform: translateY(-3px);
+}
 }
 .dropzone-text {
   color: var(--muted);
@@ -236,10 +334,15 @@ body {
   background: var(--accent);
   color: var(--accent-fg);
   cursor: pointer;
-  transition: filter 0.1s ease;
+  transition: filter 0.1s ease, transform 0.1s ease;
 }
 .btn:hover {
   filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+.btn:active {
+  filter: brightness(0.95);
+  transform: translateY(1px);
 }
 .btn:focus-visible {
   outline: 2px solid var(--accent);
@@ -271,6 +374,17 @@ body {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: 0.85rem 1rem;
+  transition: border-color 0.2s ease, box-shadow 0.15s ease, opacity 0.3s ease, transform 0.3s ease;
+}
+.job:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+/* A newly added job eases in instead of just appearing. */
+@starting-style {
+  .job {
+    opacity: 0;
+    transform: translateY(6px);
+  }
 }
 .job[data-status="processing"],
 .job[data-status="queued"] {
@@ -289,18 +403,27 @@ body {
 .job-status {
   color: var(--muted);
   font-size: 0.9rem;
-  margin-top: 0.1rem;
+  margin-top: 0.15rem;
 }
 .job-progress {
   width: 100%;
   margin-top: 0.5rem;
   accent-color: var(--accent);
 }
+.job-progress::-webkit-progress-value {
+  transition: width 0.2s ease;
+}
+#engine-progress::-webkit-progress-value {
+  transition: width 0.2s ease;
+}
 .job-error {
   color: var(--error-fg);
 }
 .job-retry {
   margin-top: 0.5rem;
+}
+.job-view-toggle {
+  margin-top: 0.6rem;
 }
 .job-exports {
   margin: 0.6rem 0;
@@ -313,6 +436,9 @@ body {
   color: var(--muted);
   font-size: 0.85rem;
   margin-right: 0.2rem;
+}
+.job-result {
+  margin-top: 0.4rem;
 }
 .job-transcript {
   max-height: 400px;
@@ -372,6 +498,15 @@ body {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+.edit-row-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 0 0 auto;
+}
+.edit-row-tools .btn {
+  white-space: nowrap;
+}
 .job-warning {
   background: var(--warn-bg);
   color: var(--warn-fg);
@@ -406,6 +541,15 @@ body {
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--text);
+}
+.speaker-remove {
+  margin-left: 0.3rem;
+  padding: 0 0.4rem;
+  font-weight: 700;
+}
+.speaker-remove:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
 @media (max-width: 480px) {

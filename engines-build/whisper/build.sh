@@ -22,6 +22,13 @@ cd src
 mkdir -p build-em
 cd build-em
 emcmake cmake -DWHISPER_WASM_SINGLE_FILE=OFF ..
+# The libmain example's own CMakeLists hardcodes -sMAXIMUM_MEMORY=2000MB via
+# LINK_FLAGS, which the medium model's per-thread compute buffers exceed
+# ("Invalid typed array length" at runtime, since it's baked into the wasm
+# binary's own memory import and can't be raised from the app's JS). Emscripten
+# appends EMCC_CFLAGS to every invocation and the last -s for a given setting
+# wins, so this overrides it without patching the vendored CMakeLists.
+export EMCC_CFLAGS="-sMAXIMUM_MEMORY=4000MB"
 emmake make -j"$(nproc)"
 
 mkdir -p ../../dist

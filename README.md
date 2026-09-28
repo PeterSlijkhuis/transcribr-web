@@ -45,8 +45,9 @@ path that sends file contents anywhere.
 
 - **A clear workflow** — settings, then files, then a queue with live
   progress, then download, laid out as numbered steps on the page
-- **Transcription** — Whisper `tiny` (Fast) / `small` (Standard) / `medium`
-  (Accurate), with optional translation to English
+- **Transcription** — Whisper `tiny` (Fast) / `small` (Standard), with
+  optional translation to English (the `medium`/Accurate tier is
+  temporarily disabled, see below)
 - **Speaker diarization** — pyannote segmentation + TitaNet embeddings,
   merged onto the transcript by max time-overlap
 - **Edit the transcript** — reassign a sentence to a different speaker (the
@@ -73,7 +74,7 @@ Opening `index.html` via `file://` does not work.
 
 The first file you transcribe downloads about 320 MB of engines and the
 standard (`small`) model from Hugging Face (URLs in `engines/manifest.json`);
-the browser caches them after that. All three Whisper models are fetched
+the browser caches them after that. Both offered Whisper models are fetched
 from `ggerganov/whisper.cpp` on Hugging Face the first time they're picked.
 
 Recommended hardware per model, shown in the app next to the picker:
@@ -82,7 +83,12 @@ Recommended hardware per model, shown in the app next to the picker:
 | --- | --- | --- |
 | Fast (tiny) | 32 MB | Any laptop from the last decade; real-time or faster on one core |
 | Standard (small) | 190 MB | A 4+ core CPU from the last ~5 years; roughly real-time with 4 threads |
-| Accurate (medium) | 514 MB | An 8+ core CPU; several times slower than real-time |
+
+The `medium` ("Accurate") tier is pulled from `engines/manifest.json` for
+now: its per-thread compute buffers exceed the compiled WASM engine's
+hardcoded 2000MB memory ceiling and crash instead of transcribing. Re-adding
+it needs the engine rebuilt with a higher `-s MAXIMUM_MEMORY`
+(`engines-build/whisper/build.sh`), not just an app change.
 
 ## How it works
 

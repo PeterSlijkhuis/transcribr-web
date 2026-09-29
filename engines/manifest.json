@@ -1,5 +1,5 @@
 {
-  "version": "engines-v1",
+  "version": "engines-v2",
   "whisper": {
     "libJsUrl": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/whisper-libmain.js",
     "wasmUrl": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/whisper-libmain.wasm",
@@ -18,6 +18,13 @@
         "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
         "default": true,
         "hardware": "A 4+ core CPU from the last ~5 years. Roughly real-time with 4 threads."
+      },
+      {
+        "id": "medium",
+        "label": "Accurate (medium, 514 MB)",
+        "name": "ggml-medium-q5_0",
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin",
+        "hardware": "An 8+ core CPU. Several times slower than real-time; a 10-minute file can take 10-20 minutes."
       }
     ]
   },

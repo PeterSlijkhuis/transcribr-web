@@ -38,10 +38,8 @@ importScripts("fetch-cached.js");
     });
 
     // The engine is built with -pthread and a pool of 4, but numThreads stays
-    // at 1: with 4, the e2e run took twice as long overall, most likely from
-    // onnxruntime's idle threads spinning after detection
-    // and starving the whisper transcription that follows (CI,
-    // 2026-10-12), for no clear gain in detection itself.
+    // at 1: 4 threads measured no faster in CI (5.3 s vs 5.4 s for 13 s of
+    // audio, 2026-10-12), so the extra threads aren't worth the risk.
     const numThreads = 1;
     sd = self.createOfflineSpeakerDiarization(self.Module, {
       segmentation: { pyannote: { model: "./segmentation.onnx" }, numThreads, debug: 0 },

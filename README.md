@@ -42,7 +42,8 @@ are compiled to WebAssembly and run on your own CPU, inside the browser tab.
 | --- | --- |
 | 🎙️ **Transcription** | Whisper in three sizes, with optional translation to English |
 | 👥 **Speaker detection** | Finds who spoke when, automatically or for a fixed number of speakers |
-| ✏️ **Editing** | Rename speakers, reassign a sentence, fix wording, split or merge lines |
+| ▶️ **Listen along** | Built-in player; click any timestamp to play from there, and the line being played is highlighted |
+| ✏️ **Editing** | Rename speakers, reassign a sentence, fix wording, split or merge lines, find & replace |
 | 📄 **Export** | CSV, JSON, SRT subtitles and Word (DOCX) |
 | 📦 **Batch queue** | Drop several files at once; they run one after another |
 | 🔒 **Private** | No backend, no analytics, no upload |
@@ -61,9 +62,13 @@ speakers. Leaving them blank or at 0 means "detect automatically".
 choose. Anything your browser can play works (MP3, WAV, M4A, MP4, WebM, ...).
 
 **3. Review and download.** Each file shows live progress, then its
-transcript. Rename "Speaker 1" to "Interviewer", hit **Edit transcript** to
-fix things up, and download in the format you need. Edits apply to every
-export immediately; there is no separate save step.
+transcript with a player for the original recording. Click a timestamp to
+hear that line (the line being played is highlighted), and press
+**Ctrl+Space** to play or pause, even while typing. Rename "Speaker 1" to
+"Interviewer", fix a misheard name everywhere with **Replace all**, hit
+**Edit transcript** to correct individual lines, and download in the format
+you need. Edits apply to every export immediately; there is no separate
+save step.
 
 <img src="docs/images/edit.png" alt="Edit mode: each line has a speaker dropdown, editable text, and Split / Merge buttons" width="640" />
 
@@ -217,6 +222,15 @@ can be slow or run out of memory. Splitting very long recordings helps.
 After the first run, mostly yes: engines and models are kept in the
 browser's Cache Storage. You still need to load the page itself, and
 picking a model you haven't used before downloads it once.
+</details>
+
+<details>
+<summary><strong>Are my edits saved?</strong></summary>
+
+Only in the open tab. Nothing is stored on a server (there isn't one), so
+download your transcript before closing the page. The page asks for
+confirmation if you try to close or reload it while finished transcripts
+are open.
 </details>
 
 <details>

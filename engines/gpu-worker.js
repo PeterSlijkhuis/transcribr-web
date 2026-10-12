@@ -28,6 +28,9 @@ async function ensureModel(id, dtype) {
     device: "webgpu",
     dtype: dtype || DTYPE,
     progress_callback: (p) => {
+      // After each file lands; once the last one has, the GPU compiles and
+      // uploads the model, which reports nothing until it's done.
+      if (p.status === "done") return self.postMessage({ type: "progress", preparing: true });
       if (p.status !== "progress" || !p.total) return;
       files[p.file] = p;
       const all = Object.values(files);

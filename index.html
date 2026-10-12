@@ -32,7 +32,7 @@
 </head>
 <body>
   <header class="hero">
-    <button type="button" id="settings-open" class="settings-open" aria-haspopup="dialog">&#9881;&#65039; Settings</button>
+    <button type="button" id="settings-open" class="settings-open" aria-haspopup="dialog" aria-describedby="settings-badge">&#9881;&#65039; Settings<span id="settings-badge" class="settings-badge" hidden><span class="visually-hidden">New: choose a model</span></span></button>
     <p class="hero-eyebrow">&#127897;&#65039; Speech to text, speakers included</p>
     <h1>transcribr-web</h1>
     <p class="subtitle">Transcription with speaker detection, entirely in your browser. Nothing you pick leaves your computer. Desktop Chrome or Edge.</p>
@@ -108,6 +108,23 @@
         <label for="model">Model</label>
         <select id="model"></select>
         <p class="hint" id="model-hint"></p>
+        <details class="model-guide">
+          <summary>Which model should I pick?</summary>
+          <table>
+            <thead><tr><th></th><th>Fast</th><th>Standard</th><th>Accurate</th></tr></thead>
+            <tbody>
+              <tr><th>Download, once</th><td>32 MB</td><td>190 MB</td><td>514 MB</td></tr>
+              <tr><th>Speed on a laptop</th><td>Several times faster than the recording</td><td>About as long as the recording</td><td>Two or more times longer than the recording</td></tr>
+              <tr><th>Mistakes</th><td>Misses names, jargon and accents; drifts on noisy audio</td><td>Good on clear speech in common languages</td><td>Fewest. Holds up with accents, noise, crosstalk and less common languages</td></tr>
+              <tr><th>Pick it for</th><td>A quick rough draft, or an old or slow computer</td><td>Most interviews and meetings</td><td>Anything you'll quote or publish, or hard audio</td></tr>
+            </tbody>
+          </table>
+          <p>All three are the same Whisper model at different sizes, so they share languages and features; bigger just means fewer mistakes and more waiting. Not sure? Start with Standard, and rerun a file on Accurate if names or words come out wrong. Speaker detection is the same whichever you pick.</p>
+        </details>
+      </div>
+      <div class="field">
+        <label class="checkbox-label"><input type="checkbox" id="gpu" /> Use the GPU</label>
+        <p class="hint" id="gpu-hint"></p>
       </div>
       <div class="field">
         <label for="theme">Appearance</label>

@@ -211,6 +211,18 @@ a bit on top. There's a small game to play while you wait.
 </details>
 
 <details>
+<summary><strong>Can it use my GPU?</strong></summary>
+
+Yes, for Fast and Standard: tick **Use the GPU** under ⚙️ Settings. It runs
+Whisper through WebGPU ([Transformers.js](https://github.com/huggingface/transformers.js)
+with the ONNX exports of the same models), so it needs a recent Chrome or
+Edge. On one tested laptop, Standard went from 1.9x to 5.4x faster than real
+time. The first GPU run downloads its own copy of the model. CUDA and ROCm
+can't be used from a web page; WebGPU is the browser's route to the GPU.
+Speaker detection still runs on the CPU.
+</details>
+
+<details>
 <summary><strong>Is there a file size or length limit?</strong></summary>
 
 No hard limit, but everything happens in one browser tab's memory. The app

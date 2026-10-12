@@ -25,7 +25,7 @@
     <div class="bench-row">
       <button class="btn btn-sm" data-model="onnx-community/whisper-small" data-device="wasm">Small on CPU (WASM)</button>
       <button class="btn btn-sm" data-model="onnx-community/whisper-small" data-device="webgpu">Small on GPU</button>
-      <button class="btn btn-sm" data-model="onnx-community/whisper-large-v3-turbo" data-device="webgpu">Large v3 turbo on GPU</button>
+      <button class="btn btn-sm" data-model="onnx-community/whisper-large-v3-turbo" data-device="webgpu-large">Large v3 turbo on GPU</button>
     </div>
     <p id="log"></p>
     <table id="results">
@@ -49,6 +49,9 @@
     // precision encoder, 4-bit decoder on GPU; 8-bit everything on CPU.
     const DTYPES = {
       webgpu: { encoder_model: "fp32", decoder_model_merged: "q4" },
+      // Turbo's fp32 encoder is a 2.5 GB external-data file that stalled at
+      // "100%" in testing; fp16 halves it (needs the GPU's shader-f16).
+      "webgpu-large": { encoder_model: "fp16", decoder_model_merged: "q4" },
       wasm: { encoder_model: "q8", decoder_model_merged: "q8" },
     };
 
@@ -76,7 +79,7 @@
           let t = performance.now();
           const asr = await pipeline("automatic-speech-recognition", model, {
             device,
-            dtype: DTYPES[device],
+            dtype: DTYPES[btn.dataset.device],
             progress_callback: (p) => p.status === "progress" && log(`Downloading ${p.file}: ${Math.round(p.progress)}%`),
           });
           const loadSec = (performance.now() - t) / 1000;

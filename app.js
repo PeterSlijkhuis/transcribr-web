@@ -26,6 +26,8 @@ const numSpeakersInput = document.getElementById("num-speakers");
 const languageInput = document.getElementById("language");
 const modelSelect = document.getElementById("model");
 const modelHint = document.getElementById("model-hint");
+const gpuInput = document.getElementById("gpu");
+const gpuHint = document.getElementById("gpu-hint");
 const translateInput = document.getElementById("translate");
 
 // ---- Compatibility -------------------------------------------------------
@@ -78,16 +80,17 @@ function checkCompat() {
 // ---- Engines -------------------------------------------------------------
 
 class Engine {
-  constructor(script, name) {
+  constructor(script, name, type = "classic") {
     this.script = script;
     this.name = name;
+    this.type = type;
     this.worker = null;
     this.loading = null;
     this.pending = null;
   }
 
   spawn() {
-    this.worker = new Worker(this.script, { name: this.name });
+    this.worker = new Worker(this.script, { name: this.name, type: this.type });
     this.worker.onmessage = (ev) => this.onMessage(ev.data);
     this.worker.onerror = (ev) => {
       ev.preventDefault();
@@ -144,6 +147,7 @@ class Engine {
 
 const whisper = new Engine("engines/whisper-worker.js", "whisper engine");
 const sherpa = new Engine("engines/sherpa-worker.js", "diarization engine");
+const gpu = new Engine("engines/gpu-worker.js", "GPU engine", "module");
 let manifest = null;
 
 // Cache names used by engines/fetch-cached.js, one per manifest version.
@@ -197,6 +201,7 @@ function fillModelPicker(m) {
       modelSelect.add(opt);
     }
     if (m.whisper.models.some((x) => x.id === savedModel())) modelSelect.value = savedModel();
+    setupGpuToggle();
     modelSelect.addEventListener("change", () => {
       try { localStorage.setItem("model", modelSelect.value); } catch (e) {}
       updateModelHint(m);
@@ -205,11 +210,39 @@ function fillModelPicker(m) {
   updateModelHint(m);
 }
 
+function selectedModel() {
+  return manifest.whisper.models.find((m) => m.id === modelSelect.value) || manifest.whisper.models.find((m) => m.default);
+}
+
+// The GPU engine only covers tiers with an ONNX export (manifest `onnx`);
+// anything else stays on whisper.cpp.
+function useGpu(model) {
+  return gpuInput.checked && !gpuInput.disabled && Boolean(model.onnx);
+}
+
+function asrEngine() {
+  return useGpu(selectedModel()) ? gpu : whisper;
+}
+
+// GPU on/off is remembered per browser too. Off by default.
+async function setupGpuToggle() {
+  try { gpuInput.checked = localStorage.getItem("gpu") === "1"; } catch (e) {}
+  gpuInput.addEventListener("change", () => {
+    try { localStorage.setItem("gpu", gpuInput.checked ? "1" : "0"); } catch (e) {}
+  });
+  const adapter = navigator.gpu && (await navigator.gpu.requestAdapter().catch(() => null));
+  gpuInput.disabled = !adapter;
+  gpuHint.textContent = adapter
+    ? "About 3x faster on a tested laptop. Works with Fast and Standard; Accurate always runs on the CPU. The first run downloads a separate copy of the model."
+    : "This browser has no WebGPU. Try a recent Chrome or Edge.";
+}
+
 async function ensureEngines(job) {
   fillModelPicker(await loadManifest());
-  if (sherpa.loading && whisper.loading) {
+  const asr = asrEngine();
+  if (sherpa.loading && asr.loading) {
     // Already loaded by an earlier job (jobs run one at a time).
-    await Promise.all([sherpa.loading, whisper.loading]);
+    await Promise.all([sherpa.loading, asr.loading]);
     return;
   }
   engineBanner.hidden = false;
@@ -224,7 +257,7 @@ async function ensureEngines(job) {
   try {
     // One at a time so the banner shows a single, meaningful progress bar.
     await sherpa.load(manifest, onProgress);
-    await whisper.load(manifest, onProgress);
+    await asr.load(manifest, onProgress);
   } catch (err) {
     engineStatus.textContent = "Loading the engines failed: " + err.message;
     engineProgress.hidden = true;
@@ -744,12 +777,13 @@ async function processJob(job) {
   stopEstimatedProgress(job);
   const dsegs = diar.segments.map((s) => ({ s: s.start, e: s.end, spk: s.speaker }));
 
-  const model = manifest.whisper.models.find((m) => m.id === modelSelect.value) || manifest.whisper.models.find((m) => m.default);
-  job.model = model.name;
+  const model = selectedModel();
+  const onGpu = useGpu(model);
+  job.model = onGpu ? `${model.onnx} (GPU)` : model.name;
   job.translate = translateInput.checked;
   setStatus(job, "Transcribing");
-  const tr = await whisper.request(
-    { type: "transcribe", samples, language, translate: job.translate, modelUrl: model.url },
+  const tr = await (onGpu ? gpu : whisper).request(
+    { type: "transcribe", samples, language, translate: job.translate, modelUrl: onGpu ? model.onnx : model.url },
     [samples.buffer],
     (p) => {
       if (p.label) {
@@ -882,8 +916,13 @@ document.querySelectorAll(".panel-toggle").forEach((toggle) => {
 
 const settingsDialog = document.getElementById("settings-dialog");
 const themeSelect = document.getElementById("theme");
+// Red dot on Settings until the first visit, so new users find the model choice.
+const settingsBadge = document.getElementById("settings-badge");
+try { settingsBadge.hidden = localStorage.getItem("settingsSeen") === "1"; } catch (e) {}
 document.getElementById("settings-open").addEventListener("click", () => {
   themeSelect.value = themePref(); // themePref/setTheme: inline script in index.html
+  settingsBadge.hidden = true;
+  try { localStorage.setItem("settingsSeen", "1"); } catch (e) {}
   settingsDialog.showModal();
 });
 themeSelect.addEventListener("change", () => setTheme(themeSelect.value));

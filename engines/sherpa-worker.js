@@ -37,9 +37,14 @@ importScripts("fetch-cached.js");
       importScripts(helperJsUrl, mainJsUrl);
     });
 
+    // The engine is built with -pthread and a pool of 4 threads
+    // (sherpa-onnx wasm/speaker-diarization/CMakeLists.txt), but the helper
+    // defaults each model to 1 thread. Use the pool: the speaker-embedding
+    // pass is most of the time on long files.
+    const numThreads = Math.max(1, Math.min(4, self.navigator.hardwareConcurrency || 1));
     sd = self.createOfflineSpeakerDiarization(self.Module, {
-      segmentation: { pyannote: { model: "./segmentation.onnx" }, debug: 0 },
-      embedding: { model: "./embedding.onnx", debug: 0 },
+      segmentation: { pyannote: { model: "./segmentation.onnx" }, numThreads, debug: 0 },
+      embedding: { model: "./embedding.onnx", numThreads, debug: 0 },
       clustering: { numClusters: -1, threshold: 0.5 },
       minDurationOn: 0.3,
       minDurationOff: 0.5,
@@ -53,7 +58,10 @@ importScripts("fetch-cached.js");
     const config = sd.config;
     config.clustering = { numClusters: numSpeakers > 0 ? numSpeakers : -1, threshold: 0.5 };
     sd.setConfig(config);
-    return sd.process(samples) || [];
+    const t = performance.now();
+    const segments = sd.process(samples) || [];
+    console.log(`diarization: ${((performance.now() - t) / 1000).toFixed(1)} s for ${(samples.length / 16000).toFixed(0)} s of audio, ${config.embedding.numThreads} threads`);
+    return segments;
   }
 
   self.onmessage = async (ev) => {

@@ -271,15 +271,21 @@ function setStatus(job, stage, fraction) {
 // Decoding and diarization report no progress of their own (the browser's
 // AudioContext and sherpa-onnx's diarization call are both black boxes
 // until they resolve), so estimate against a rough expected duration
-// instead of leaving the bar hidden for the whole step. Eases toward 92%
-// and holds -- it never claims done on its own, the real transition does.
+// instead of leaving the bar hidden for the whole step. Eases toward 92%;
+// past that the estimate was wrong, so it switches to an animated bar and
+// an elapsed clock rather than sitting on a number that looks frozen.
 function startEstimatedProgress(job, stage, estimatedMs) {
   stopEstimatedProgress(job);
   const start = performance.now();
   setStatus(job, stage, 0);
   job.estimateTimer = setInterval(() => {
     const elapsed = performance.now() - start;
-    setStatus(job, stage, Math.min(0.92, 1 - Math.exp((-3 * elapsed) / estimatedMs)));
+    const fraction = 1 - Math.exp((-3 * elapsed) / estimatedMs);
+    if (fraction < 0.92) return setStatus(job, stage, fraction);
+    setStatus(job, `${stage}, still working (${fmtClock(elapsed / 1000)} so far)`);
+    const bar = job.el.querySelector(".job-progress");
+    bar.hidden = false;
+    bar.removeAttribute("value");
   }, 200);
 }
 

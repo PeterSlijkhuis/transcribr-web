@@ -940,6 +940,7 @@ gameToggle.addEventListener("click", () => {
     flappyCanvas.hidden = false;
     gameToggle.textContent = "Hide game";
     stopGame = mountFlappyGame(flappyCanvas);
+    gameToggle.blur(); // so space flaps instead of pressing "Hide game"
   }
 });
 

@@ -4,7 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Transcription and speaker diarization that runs entirely in your browser. No server, no upload, nothing leaves your machine." />
-  <meta name="theme-color" content="#2a6db3" />
+  <meta name="theme-color" content="#f6f7fb" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0b1120" media="(prefers-color-scheme: dark)" />
   <title>transcribr-web</title>
   <!-- Must load first: makes the page cross-origin-isolated on hosts that
        can't set COOP/COEP headers (GitHub Pages), reloading once if needed. -->
@@ -13,6 +14,7 @@
 </head>
 <body>
   <header class="hero">
+    <p class="hero-eyebrow">&#127897;&#65039; Speech to text, speakers included</p>
     <h1>transcribr-web</h1>
     <p class="subtitle">Transcription with speaker detection, entirely in your browser. Nothing you pick leaves your computer. Desktop Chrome or Edge.</p>
     <p class="privacy-badge">&#128274; 100% local: your audio is never uploaded. Only the transcription engine itself (not your files) is downloaded, once, from Hugging Face.</p>

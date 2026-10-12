@@ -370,8 +370,93 @@ function renderSpeakerNames(job) {
   container.hidden = false;
 }
 
+// ---- Playback ------------------------------------------------------------
+// The original file is still in memory, so the result gets a plain <audio>
+// player (the browser's own controls include playback speed). Timestamps
+// seek into it, and the line being played is highlighted as it goes.
+
+function timeButton(job, r) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "turn-time";
+  b.title = "Play from here";
+  b.textContent = `${fmtClock(r.timestamp_start)}-${fmtClock(r.timestamp_end)}`;
+  b.addEventListener("click", () => {
+    const audio = job.el.querySelector(".job-audio");
+    audio.currentTime = r.timestamp_start;
+    audio.play();
+  });
+  return b;
+}
+
+function markRange(el, r) {
+  el.dataset.start = r.timestamp_start;
+  el.dataset.end = r.timestamp_end;
+}
+
+function followPlayback(job) {
+  const t = job.el.querySelector(".job-audio").currentTime;
+  const container = job.el.querySelector(".job-transcript");
+  for (const el of container.querySelectorAll("[data-start]")) {
+    const on = t >= +el.dataset.start && t < +el.dataset.end;
+    if (on === el.classList.contains("playing")) continue;
+    el.classList.toggle("playing", on);
+    // Keep the playing line in view, but never yank the text box someone is typing in.
+    if (on && !job.editing && (el.offsetTop < container.scrollTop || el.offsetTop + el.offsetHeight > container.scrollTop + container.clientHeight)) {
+      container.scrollTop = el.offsetTop - 40;
+    }
+  }
+}
+
+// Ctrl+Space plays/pauses the open transcript's recording, even while typing in it.
+document.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey && e.code === "Space")) return;
+  const audio = jobList.querySelector(".job-result:not([data-collapsed]) .job-audio");
+  if (!audio) return;
+  e.preventDefault();
+  if (audio.paused) audio.play();
+  else audio.pause();
+});
+
+// Edits and finished transcripts live only in this tab.
+window.addEventListener("beforeunload", (e) => {
+  if (jobList.querySelector('.job[data-status="done"]')) e.preventDefault();
+});
+
+// ---- Find & replace ------------------------------------------------------
+
+function countMatches(job, find) {
+  return find ? job.rows.reduce((n, r) => n + r.transcribed_text.split(find).length - 1, 0) : 0;
+}
+
+function setupFind(job) {
+  const bar = job.el.querySelector(".job-find");
+  const find = bar.querySelector(".find-text");
+  const replace = bar.querySelector(".replace-text");
+  const count = bar.querySelector(".find-count");
+  const update = () => {
+    const n = countMatches(job, find.value);
+    count.textContent = find.value ? `${n} match${n === 1 ? "" : "es"}` : "";
+  };
+  find.addEventListener("input", update);
+  bar.querySelector(".replace-all").addEventListener("click", () => {
+    const n = countMatches(job, find.value);
+    if (!n) return;
+    for (const r of job.rows) r.transcribed_text = r.transcribed_text.split(find.value).join(replace.value);
+    renderTranscript(job);
+    count.textContent = `Replaced ${n}`;
+  });
+  bar.hidden = false;
+}
+
 function renderTranscript(job) {
-  if (job.editing) return renderTranscriptEdit(job);
+  if (job.editing) renderTranscriptEdit(job);
+  else renderTranscriptView(job);
+  // A re-render drops the highlight; put it back without waiting for playback to move.
+  if (job.el.querySelector(".job-audio").currentTime > 0) followPlayback(job);
+}
+
+function renderTranscriptView(job) {
   const container = job.el.querySelector(".job-transcript");
   container.replaceChildren();
   const rows = renameSpeakers(job.rows, job.names);
@@ -383,9 +468,8 @@ function renderTranscript(job) {
     const who = document.createElement("span");
     who.className = "turn-speaker";
     who.textContent = turn.speaker_id;
-    const when = document.createElement("span");
-    when.className = "turn-time";
-    when.textContent = `${fmtClock(turn.timestamp_start)}-${fmtClock(turn.timestamp_end)}`;
+    const when = timeButton(job, turn);
+    markRange(p, turn);
     const text = document.createElement("span");
     text.className = "turn-text";
     text.textContent = turn.transcribed_text;
@@ -458,9 +542,9 @@ function renderTranscriptEdit(job) {
       renderTranscript(job);
     });
 
-    const when = document.createElement("span");
-    when.className = "turn-time edit-row-time";
-    when.textContent = `${fmtClock(row.timestamp_start)}-${fmtClock(row.timestamp_end)}`;
+    const when = timeButton(job, row);
+    when.classList.add("edit-row-time");
+    markRange(line, row);
 
     const text = document.createElement("textarea");
     text.className = "edit-row-text";
@@ -556,6 +640,13 @@ function finishJob(job) {
     }
   };
 
+  if (job.rows.length) {
+    const audio = job.el.querySelector(".job-audio");
+    audio.src = URL.createObjectURL(job.file);
+    audio.addEventListener("timeupdate", () => followPlayback(job));
+    audio.hidden = false;
+    setupFind(job);
+  }
   renderSpeakerNames(job);
   renderTranscript(job);
   // Don't steal focus from a result the user already has open; only default
@@ -702,6 +793,14 @@ function addJob(file) {
     </div>
     <div class="job-result" data-collapsed inert>
       <div class="collapsible-inner">
+        <audio class="job-audio" controls preload="metadata" hidden></audio>
+        <div class="job-find" hidden>
+          <input type="search" class="find-text" placeholder="Find" aria-label="Find" />
+          <input type="text" class="replace-text" placeholder="Replace with" aria-label="Replace with" />
+          <button type="button" class="btn btn-sm btn-ghost replace-all">Replace all</button>
+          <span class="find-count" aria-live="polite"></span>
+          <span class="find-tip">Tip: click a timestamp to play from there, Ctrl+Space to play/pause.</span>
+        </div>
         <div class="job-speakers" hidden></div>
         <div class="job-transcript" hidden></div>
       </div>

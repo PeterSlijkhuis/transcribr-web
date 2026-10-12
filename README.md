@@ -98,7 +98,7 @@ Check it yourself: open DevTools → Network while transcribing, or read
 
 ## Choosing a model
 
-Pick the model under **⚙️ Settings**; the app shows a hardware recommendation next to the picker. Rule of thumb: start with
+The model is picked automatically for your device; to choose one yourself, open **⚙️ Settings**, which explains each model. Rule of thumb: start with
 **Standard**; drop to **Fast** on an older laptop, step up to **Accurate**
 for hard audio (accents, noise, crosstalk) if you can wait.
 
@@ -213,7 +213,11 @@ a bit on top. There's a small game to play while you wait.
 <details>
 <summary><strong>Can it use my GPU?</strong></summary>
 
-Yes, for Fast and Standard: tick **Use the GPU** under ⚙️ Settings. It runs
+Yes, for Fast and Standard, and by default it does so on its own. With
+**Model** and **Run on** both left at *Automatic* in ⚙️ Settings, the app
+checks your device and picks Standard on the graphics card when there is a
+usable one, Standard on the processor with 4+ cores, and Fast below that. If
+the graphics card fails, the file finishes on the processor. The GPU path runs
 Whisper through WebGPU ([Transformers.js](https://github.com/huggingface/transformers.js)
 with the ONNX exports of the same models), so it needs a recent Chrome or
 Edge. On one tested laptop, Standard went from 1.9x to 5.4x faster than real

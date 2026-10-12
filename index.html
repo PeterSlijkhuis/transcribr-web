@@ -123,8 +123,13 @@
         </details>
       </div>
       <div class="field">
-        <label class="checkbox-label"><input type="checkbox" id="gpu" /> Use the GPU</label>
-        <p class="hint" id="gpu-hint"></p>
+        <label for="engine">Run on</label>
+        <select id="engine">
+          <option value="auto">Automatic (fastest this device can do)</option>
+          <option value="gpu">Graphics card (GPU)</option>
+          <option value="cpu">Processor (CPU)</option>
+        </select>
+        <p class="hint" id="engine-hint"></p>
       </div>
       <div class="field">
         <label for="theme">Appearance</label>

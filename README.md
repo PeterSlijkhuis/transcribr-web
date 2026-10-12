@@ -95,14 +95,62 @@ The app shows a recommendation next to the picker. Rule of thumb: start with
 **Standard**; drop to **Fast** on an older laptop, step up to **Accurate**
 for hard audio (accents, noise, crosstalk) if you can wait.
 
-| Model | Download | Good on | Speed |
-| --- | --- | --- | --- |
-| Fast (tiny) | 32 MB | Any laptop from the last decade | Real-time or faster on one core |
-| Standard (small) | 190 MB | A 4+ core CPU from the last ~5 years | Roughly real-time with 4 threads |
-| Accurate (medium) | 514 MB | An 8+ core CPU | Several times slower than real-time |
+| Tier | Whisper model | Parameters | Download | Good on | Speed |
+| --- | --- | --- | --- | --- | --- |
+| Fast | `tiny`, 5-bit (`ggml-tiny-q5_1`) | 39 M | 32 MB | Any laptop from the last decade | Real-time or faster on one core |
+| Standard (default) | `small`, 5-bit (`ggml-small-q5_1`) | 244 M | 190 MB | A 4+ core CPU from the last ~5 years | Roughly real-time with 4 threads |
+| Accurate | `medium`, 5-bit (`ggml-medium-q5_0`) | 769 M | 514 MB | An 8+ core CPU | Several times slower than real-time |
 
-The speaker engines add about 130 MB on top, so a first run with the
-Standard model downloads roughly 320 MB. After that it is cached.
+### What actually differs between the tiers
+
+All three are the same OpenAI Whisper architecture, trained on the same
+data, in different sizes. A bigger model has more capacity, so it:
+
+- makes fewer word errors, especially on accents, background noise,
+  overlapping speech, names and jargon;
+- is better at languages other than English, where `tiny` degrades fastest;
+- punctuates and capitalizes more reliably;
+- hallucinates less (inventing or repeating text during silence or music).
+
+The cost is roughly linear in size: about 6x more compute and memory from
+Fast to Standard, and another 3x from Standard to Accurate. Everything runs
+on your CPU, so that cost is your wait time.
+
+### Why these models
+
+- **Multilingual, not English-only.** Whisper also ships `.en` variants
+  that are slightly better on English, but they can't transcribe other
+  languages or translate, so the app uses the multilingual models.
+- **5-bit quantized.** The weights are compressed from 16-bit to about
+  5-bit, cutting downloads and memory roughly 3x for a small accuracy cost.
+  In a browser tab, where memory is capped and everything downloads first,
+  that trade is worth it.
+- **Standard is `small`, not `base`.** The app used `base` early on;
+  `small` is clearly more accurate and still runs around real-time on a
+  normal laptop, so it became the default.
+- **No `large` tier (yet).** `large-v3` has about 1.5 B parameters, twice
+  `medium`. On a CPU in WebAssembly it would be far slower than real-time
+  for most people, and it pushes against the 4 GB memory the engine can
+  address. The faster `large-v3-turbo` is a plausible future tier but
+  hasn't been tested here.
+- **Models come straight from the source.** All three are the official
+  whisper.cpp conversions on Hugging Face
+  ([`ggerganov/whisper.cpp`](https://huggingface.co/ggerganov/whisper.cpp)),
+  not re-hosted copies. The URLs are in `engines/manifest.json`.
+
+### Speaker detection models
+
+Speaker detection is the same for every tier and runs before
+transcription:
+
+| Model | Job |
+| --- | --- |
+| [pyannote segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0) | Finds where speech is and where the speaker changes |
+| [NVIDIA NeMo TitaNet-large](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/nemo/models/titanet_large) | Turns each speech chunk into a "voiceprint" so chunks from the same person cluster together |
+
+Both are the ONNX exports from the sherpa-onnx project, bundled into the
+diarization engine (about 100 MB). A first run with the Standard model
+therefore downloads roughly 320 MB in total. After that it is cached.
 
 ## FAQ
 
@@ -127,6 +175,14 @@ speakers, then a merge by time overlap) but built from
 [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), which compile to
 WebAssembly. Diarization uses pyannote segmentation plus TitaNet speaker
 embeddings.
+</details>
+
+<details>
+<summary><strong>Why isn't there a "large" model?</strong></summary>
+
+See [Why these models](#why-these-models). Short version: on a CPU inside a
+browser tab it would be very slow for most machines and close to the
+engine's memory limit.
 </details>
 
 <details>

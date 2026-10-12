@@ -37,11 +37,12 @@ importScripts("fetch-cached.js");
       importScripts(helperJsUrl, mainJsUrl);
     });
 
-    // The engine is built with -pthread and a pool of 4 threads
-    // (sherpa-onnx wasm/speaker-diarization/CMakeLists.txt), but the helper
-    // defaults each model to 1 thread. Use the pool: the speaker-embedding
-    // pass is most of the time on long files.
-    const numThreads = Math.max(1, Math.min(4, self.navigator.hardwareConcurrency || 1));
+    // The engine is built with -pthread and a pool of 4, but numThreads stays
+    // at 1: with 4, the e2e run took twice as long overall, most likely from
+    // onnxruntime's idle threads spinning after detection
+    // and starving the whisper transcription that follows (CI,
+    // 2026-10-12), for no clear gain in detection itself.
+    const numThreads = 1;
     sd = self.createOfflineSpeakerDiarization(self.Module, {
       segmentation: { pyannote: { model: "./segmentation.onnx" }, numThreads, debug: 0 },
       embedding: { model: "./embedding.onnx", numThreads, debug: 0 },

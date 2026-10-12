@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>transcribr-web GPU benchmark</title>
+  <script src="coi-serviceworker.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .bench-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1rem 0; }
+    #results { width: 100%; border-collapse: collapse; margin-top: 1rem; font-variant-numeric: tabular-nums; }
+    #results th, #results td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--line); }
+    #log { white-space: pre-wrap; color: var(--muted); font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <!-- Throwaway experiment: times Whisper in Transformers.js on WebGPU vs
+       CPU (WASM) on the visitor's own machine, to decide whether a GPU
+       engine is worth building. Not linked from the app. -->
+  <section class="panel">
+    <h1>GPU benchmark</h1>
+    <p id="gpu"></p>
+    <p>Pick an audio file (a 2 to 5 minute recording is ideal), then run each test. The first run of each model downloads it; the time shown is transcription only.</p>
+    <input type="file" id="file" accept="audio/*,video/*" />
+    <div class="bench-row">
+      <button class="btn btn-sm" data-model="onnx-community/whisper-small" data-device="wasm">Small on CPU (WASM)</button>
+      <button class="btn btn-sm" data-model="onnx-community/whisper-small" data-device="webgpu">Small on GPU</button>
+      <button class="btn btn-sm" data-model="onnx-community/whisper-large-v3-turbo" data-device="webgpu">Large v3 turbo on GPU</button>
+    </div>
+    <p id="log"></p>
+    <table id="results">
+      <thead><tr><th>Test</th><th>Load</th><th>Transcribe</th><th>Speed</th><th>First words</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <script type="module">
+    import { pipeline } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.min.js";
+
+    const log = (t) => (document.getElementById("log").textContent = t);
+    const gpuEl = document.getElementById("gpu");
+    if (!navigator.gpu) gpuEl.textContent = "WebGPU: not available in this browser.";
+    else navigator.gpu.requestAdapter().then((a) => {
+      const i = a && a.info;
+      gpuEl.textContent = a ? `WebGPU: ${i ? [i.vendor, i.architecture, i.description].filter(Boolean).join(" ") || "available" : "available"}` : "WebGPU: no adapter.";
+    });
+
+    // Recommended dtypes from the Transformers.js Whisper examples: full
+    // precision encoder, 4-bit decoder on GPU; 8-bit everything on CPU.
+    const DTYPES = {
+      webgpu: { encoder_model: "fp32", decoder_model_merged: "q4" },
+      wasm: { encoder_model: "q8", decoder_model_merged: "q8" },
+    };
+
+    async function decode(file) {
+      const ctx = new AudioContext({ sampleRate: 16000 });
+      try {
+        const buf = await ctx.decodeAudioData(await file.arrayBuffer());
+        return buf.getChannelData(0);
+      } finally {
+        ctx.close();
+      }
+    }
+
+    for (const btn of document.querySelectorAll("[data-model]")) {
+      btn.addEventListener("click", async () => {
+        const file = document.getElementById("file").files[0];
+        if (!file) return log("Pick a file first.");
+        const { model, device } = btn.dataset;
+        document.querySelectorAll("[data-model]").forEach((b) => (b.disabled = true));
+        try {
+          log("Decoding audio...");
+          const samples = await decode(file);
+          const durationSec = samples.length / 16000;
+          log(`Loading ${model} on ${device} (first time downloads it)...`);
+          let t = performance.now();
+          const asr = await pipeline("automatic-speech-recognition", model, {
+            device,
+            dtype: DTYPES[device],
+            progress_callback: (p) => p.status === "progress" && log(`Downloading ${p.file}: ${Math.round(p.progress)}%`),
+          });
+          const loadSec = (performance.now() - t) / 1000;
+          log("Transcribing...");
+          t = performance.now();
+          const out = await asr(samples, { chunk_length_s: 30, stride_length_s: 5 });
+          const runSec = (performance.now() - t) / 1000;
+          const row = document.createElement("tr");
+          for (const cell of [btn.textContent, `${loadSec.toFixed(1)} s`, `${runSec.toFixed(1)} s`, `${(durationSec / runSec).toFixed(1)}x real-time`, out.text.trim().slice(0, 80)]) {
+            const td = document.createElement("td");
+            td.textContent = cell;
+            row.append(td);
+          }
+          document.querySelector("#results tbody").append(row);
+          log(`Done. Audio was ${durationSec.toFixed(0)} s long.`);
+          await asr.dispose();
+        } catch (err) {
+          log("Failed: " + ((err && err.message) || err));
+        } finally {
+          document.querySelectorAll("[data-model]").forEach((b) => (b.disabled = false));
+        }
+      });
+    }
+  </script>
+</body>
+</html>

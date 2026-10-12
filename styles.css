@@ -478,6 +478,42 @@ input[type="checkbox"] {
 .settings-open:focus-visible {
   background: rgba(255, 255, 255, 0.28);
 }
+.settings-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  background: var(--danger);
+  border: 2px solid #fff;
+}
+.model-guide {
+  margin-top: 0.6rem;
+  font-size: 0.85rem;
+  color: var(--ink-2);
+}
+.model-guide summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--brand-ink);
+}
+.model-guide table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.6rem 0;
+}
+.model-guide th,
+.model-guide td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.35rem 0.4rem;
+  border-bottom: 1px solid var(--line);
+}
+.model-guide tbody th {
+  font-weight: 600;
+  color: var(--muted);
+}
 .settings-dialog {
   width: min(30rem, calc(100vw - 2rem));
   border: 1px solid var(--line);
@@ -810,4 +846,12 @@ input[type="checkbox"] {
   .field-wide {
     grid-column: span 1;
   }
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }

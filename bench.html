@@ -26,6 +26,7 @@
       <button class="btn btn-sm" data-model="onnx-community/whisper-small" data-device="wasm">Small on CPU (WASM)</button>
       <button class="btn btn-sm" data-model="onnx-community/whisper-small" data-device="webgpu">Small on GPU</button>
       <button class="btn btn-sm" data-model="onnx-community/whisper-large-v3-turbo" data-device="webgpu-large">Large v3 turbo on GPU</button>
+      <button class="btn btn-sm" data-model="onnx-community/whisper-large-v3-turbo" data-device="webgpu-large-q4">Large v3 turbo on GPU (4-bit, smaller)</button>
     </div>
     <p id="log"></p>
     <table id="results">
@@ -37,12 +38,22 @@
   <script type="module">
     import { pipeline } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.min.js";
 
-    const log = (t) => (document.getElementById("log").textContent = t);
+    // Each message carries the seconds since the test started, ticking, so a
+    // hang is distinguishable from slow work.
+    let t0 = 0, msg = "", ticker = null;
+    const show = () => (document.getElementById("log").textContent = t0 ? `${msg} (${Math.round((performance.now() - t0) / 1000)} s)` : msg);
+    const log = (t) => { msg = t; show(); };
+    window.addEventListener("unhandledrejection", (e) => log("Error: " + ((e.reason && e.reason.message) || e.reason)));
     const gpuEl = document.getElementById("gpu");
     if (!navigator.gpu) gpuEl.textContent = "WebGPU: not available in this browser.";
     else navigator.gpu.requestAdapter().then((a) => {
       const i = a && a.info;
-      gpuEl.textContent = a ? `WebGPU: ${i ? [i.vendor, i.architecture, i.description].filter(Boolean).join(" ") || "available" : "available"}` : "WebGPU: no adapter.";
+      if (!a) return (gpuEl.textContent = "WebGPU: no adapter.");
+      const name = i ? [i.vendor, i.architecture, i.description].filter(Boolean).join(" ") : "";
+      const mb = (n) => Math.round(n / 2 ** 20) + " MB";
+      gpuEl.textContent = `WebGPU: ${name || "available"}; fp16: ${a.features.has("shader-f16") ? "yes" : "no"}; ` +
+        `max buffer ${mb(a.limits.maxBufferSize)}, max storage binding ${mb(a.limits.maxStorageBufferBindingSize)}` +
+        (a.isFallbackAdapter || (i && i.isFallbackAdapter) ? "; software fallback" : "");
     });
 
     // Recommended dtypes from the Transformers.js Whisper examples: full
@@ -52,6 +63,8 @@
       // Turbo's fp32 encoder is a 2.5 GB external-data file that stalled at
       // "100%" in testing; fp16 halves it (needs the GPU's shader-f16).
       "webgpu-large": { encoder_model: "fp16", decoder_model_merged: "q4" },
+      // 4-bit encoder (425 MB): less GPU memory and no fp16 requirement.
+      "webgpu-large-q4": { encoder_model: "q4", decoder_model_merged: "q4" },
       wasm: { encoder_model: "q8", decoder_model_merged: "q8" },
     };
 
@@ -69,7 +82,10 @@
       btn.addEventListener("click", async () => {
         const file = document.getElementById("file").files[0];
         if (!file) return log("Pick a file first.");
-        const { model, device } = btn.dataset;
+        const { model } = btn.dataset;
+        // data-device carries a variant suffix ("webgpu-large-q4") that picks
+        // the dtype; the runtime device itself is just "webgpu" or "wasm".
+        const device = btn.dataset.device.replace(/-large.*/, "");
         document.querySelectorAll("[data-model]").forEach((b) => (b.disabled = true));
         try {
           log("Decoding audio...");
@@ -77,10 +93,16 @@
           const durationSec = samples.length / 16000;
           log(`Loading ${model} on ${device} (first time downloads it)...`);
           let t = performance.now();
+          t0 = t;
+          ticker = setInterval(show, 1000);
           const asr = await pipeline("automatic-speech-recognition", model, {
             device,
             dtype: DTYPES[btn.dataset.device],
-            progress_callback: (p) => p.status === "progress" && log(`Downloading ${p.file}: ${Math.round(p.progress)}%`),
+            progress_callback: (p) => {
+              if (p.status === "progress") log(`Downloading ${p.file}: ${Math.round(p.progress)}%`);
+              // After the last file, the GPU compiles and uploads the model.
+              if (p.status === "done") log("Downloaded. Preparing the model on the GPU (the first time can take a few minutes)...");
+            },
           });
           const loadSec = (performance.now() - t) / 1000;
           log("Transcribing...");
@@ -100,6 +122,8 @@
           log("Failed: " + ((err && err.message) || err));
         } finally {
           document.querySelectorAll("[data-model]").forEach((b) => (b.disabled = false));
+          clearInterval(ticker);
+          t0 = 0;
         }
       });
     }

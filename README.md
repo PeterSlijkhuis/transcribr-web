@@ -98,7 +98,7 @@ Check it yourself: open DevTools → Network while transcribing, or read
 
 ## Choosing a model
 
-Pick the model under **⚙️ Settings**; the app shows a hardware recommendation next to the picker. Rule of thumb: start with
+The model is picked automatically for your device; to choose one yourself, open **⚙️ Settings**, which explains each model. Rule of thumb: start with
 **Standard**; drop to **Fast** on an older laptop, step up to **Accurate**
 for hard audio (accents, noise, crosstalk) if you can wait.
 
@@ -187,9 +187,12 @@ embeddings.
 <details>
 <summary><strong>Why isn't there a "large" model?</strong></summary>
 
-See [Why these models](#why-these-models). Short version: on a CPU inside a
-browser tab it would be very slow for most machines and close to the
-engine's memory limit.
+There is, on a graphics card: pick **Accurate** and it runs Whisper
+large-v3-turbo through WebGPU (a 1.6 GB download, cached after the first
+time). On the processor Accurate stays on `medium`, because large inside a
+browser tab would be very slow for most machines and close to the engine's
+memory limit (see [Why these models](#why-these-models)). Turbo can't
+translate, so with Translate to English on, Accurate uses the processor.
 </details>
 
 <details>
@@ -208,6 +211,24 @@ It depends on your CPU and the model. On a typical modern laptop with the
 Standard model, expect roughly the length of the recording. Fast is quicker,
 Accurate can take a 10-minute file 10 to 20 minutes. Speaker detection adds
 a bit on top. There's a small game to play while you wait.
+</details>
+
+<details>
+<summary><strong>Can it use my GPU?</strong></summary>
+
+Yes, and by default it does so on its own. With
+**Model** and **Run on** both left at *Automatic* in ⚙️ Settings, the app
+checks your device and picks Standard on the graphics card when there is a
+usable one, Standard on the processor with 4+ cores, and Fast below that. If
+the graphics card fails, the file finishes on the processor. Automatic never
+picks Accurate: on a graphics card it means large-v3-turbo, a 1.6 GB
+download, and on a processor it's slower than the recording. The GPU path runs
+Whisper through WebGPU ([Transformers.js](https://github.com/huggingface/transformers.js)
+with the ONNX exports of the same models), so it needs a recent Chrome or
+Edge. On one tested laptop, Standard went from 1.9x to 5.4x faster than real
+time. The first GPU run downloads its own copy of the model. CUDA and ROCm
+can't be used from a web page; WebGPU is the browser's route to the GPU.
+Speaker detection still runs on the CPU.
 </details>
 
 <details>

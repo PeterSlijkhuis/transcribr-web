@@ -26,6 +26,8 @@ const numSpeakersInput = document.getElementById("num-speakers");
 const languageInput = document.getElementById("language");
 const modelSelect = document.getElementById("model");
 const modelHint = document.getElementById("model-hint");
+const engineSelect = document.getElementById("engine");
+const engineHint = document.getElementById("engine-hint");
 const translateInput = document.getElementById("translate");
 
 // ---- Compatibility -------------------------------------------------------
@@ -78,16 +80,17 @@ function checkCompat() {
 // ---- Engines -------------------------------------------------------------
 
 class Engine {
-  constructor(script, name) {
+  constructor(script, name, type = "classic") {
     this.script = script;
     this.name = name;
+    this.type = type;
     this.worker = null;
     this.loading = null;
     this.pending = null;
   }
 
   spawn() {
-    this.worker = new Worker(this.script, { name: this.name });
+    this.worker = new Worker(this.script, { name: this.name, type: this.type });
     this.worker.onmessage = (ev) => this.onMessage(ev.data);
     this.worker.onerror = (ev) => {
       ev.preventDefault();
@@ -144,6 +147,7 @@ class Engine {
 
 const whisper = new Engine("engines/whisper-worker.js", "whisper engine");
 const sherpa = new Engine("engines/sherpa-worker.js", "diarization engine");
+const gpu = new Engine("engines/gpu-worker.js", "GPU engine", "module");
 let manifest = null;
 
 // Cache names used by engines/fetch-cached.js, one per manifest version.
@@ -180,9 +184,73 @@ async function loadManifest() {
   return manifest;
 }
 
-function updateModelHint(m) {
-  const model = m.whisper.models.find((x) => x.id === modelSelect.value) || m.whisper.models.find((x) => x.default);
-  modelHint.textContent = model && model.hardware ? "Recommended: " + model.hardware : "";
+// ---- Picking the fastest setup for this device ----------------------------
+
+// What this device offers, detected once. A software ("fallback") WebGPU
+// adapter is no faster than the CPU, so it doesn't count as a GPU.
+const hardware = {
+  cores: navigator.hardwareConcurrency || 4,
+  memoryGb: navigator.deviceMemory, // Chrome/Edge only, capped at 8
+  gpu: false,
+};
+const hardwareReady = (async () => {
+  try {
+    const a = navigator.gpu && (await navigator.gpu.requestAdapter());
+    hardware.gpu = Boolean(a) && !(a.isFallbackAdapter || (a.info && a.info.isFallbackAdapter));
+  } catch (e) {}
+})();
+// Set when the GPU engine fails on this device; Automatic then sticks to
+// the CPU for the rest of the visit.
+let gpuFailed = false;
+
+function gpuAvailable() {
+  return hardware.gpu && !gpuFailed;
+}
+
+// "auto" picks Standard where it runs at least about real time (a GPU, or
+// 4+ cores with 4+ GB), else Fast. It never picks Accurate: on the CPU it's
+// slower than the recording, and it has no GPU version.
+function selectedModel() {
+  const models = manifest.whisper.models;
+  if (modelSelect.value !== "auto") return models.find((m) => m.id === modelSelect.value) || models.find((m) => m.default);
+  const strong = gpuAvailable() || (hardware.cores >= 4 && (hardware.memoryGb || 8) >= 4);
+  return models.find((m) => m.id === (strong ? "small" : "tiny"));
+}
+
+// The GPU engine only covers tiers with an ONNX export (manifest `onnx`);
+// anything else stays on whisper.cpp.
+function useGpu(model) {
+  // large-v3-turbo was trained without translation data, so a tier marked
+  // onnxNoTranslate goes to the CPU model when Translate is on.
+  return engineSelect.value !== "cpu" && gpuAvailable() && Boolean(model.onnx) && !(translateInput.checked && model.onnxNoTranslate);
+}
+
+function asrEngine() {
+  return useGpu(selectedModel()) ? gpu : whisper;
+}
+
+function describeHardware() {
+  const parts = [`${hardware.cores} CPU cores`];
+  if (hardware.memoryGb) parts.push(`${hardware.memoryGb}${hardware.memoryGb >= 8 ? "+" : ""} GB memory`);
+  parts.push(hardware.gpu ? "a WebGPU graphics card" : "no usable GPU in this browser");
+  return parts.join(", ");
+}
+
+function updateModelHint() {
+  if (!manifest) return;
+  const model = selectedModel();
+  const where = useGpu(model) ? "the graphics card" : "the processor";
+  modelHint.textContent =
+    modelSelect.value === "auto"
+      ? `Using ${model.label.split(" (")[0]} on ${where}, picked for this device (${describeHardware()}).`
+      : useGpu(model)
+        ? `Runs on the graphics card (${model.onnx.split("/")[1]}).`
+        : `Runs on the processor. Recommended hardware: ${model.hardware}`;
+  engineHint.textContent = !hardware.gpu
+    ? "This browser has no usable GPU (WebGPU), so everything runs on the processor. A recent Chrome or Edge may have one."
+    : selectedModel().onnx
+      ? "The graphics card was about 3x faster on a tested laptop. Its first run downloads a separate copy of the model."
+      : "This model has no GPU version, so it runs on the processor.";
 }
 
 // The model choice is remembered per browser, like the theme.
@@ -190,26 +258,50 @@ function savedModel() {
   try { return localStorage.getItem("model"); } catch (e) { return null; }
 }
 
-function fillModelPicker(m) {
+function savedSetting(key) {
+  try { return localStorage.getItem(key); } catch (e) { return null; }
+}
+
+async function fillModelPicker(m) {
   if (!modelSelect.options.length) {
-    for (const model of m.whisper.models) {
-      const opt = new Option(model.label, model.id, false, Boolean(model.default));
-      modelSelect.add(opt);
+    modelSelect.add(new Option("Automatic (best for this device)", "auto"));
+    for (const model of m.whisper.models) modelSelect.add(new Option(model.label, model.id));
+    const saved = savedModel();
+    if (m.whisper.models.some((x) => x.id === saved)) modelSelect.value = saved;
+    if (["gpu", "cpu"].includes(savedSetting("engine"))) engineSelect.value = savedSetting("engine");
+    for (const [select, key] of [[modelSelect, "model"], [engineSelect, "engine"]]) {
+      select.addEventListener("change", () => {
+        try { localStorage.setItem(key, select.value); } catch (e) {}
+        updateModelHint();
+      });
     }
-    if (m.whisper.models.some((x) => x.id === savedModel())) modelSelect.value = savedModel();
-    modelSelect.addEventListener("change", () => {
-      try { localStorage.setItem("model", modelSelect.value); } catch (e) {}
-      updateModelHint(m);
-    });
   }
-  updateModelHint(m);
+  await hardwareReady;
+  engineSelect.querySelector('option[value="gpu"]').disabled = !hardware.gpu;
+  if (!hardware.gpu && engineSelect.value === "gpu") engineSelect.value = "auto";
+  updateModelHint();
+}
+
+// If the GPU engine won't start (driver trouble, blocked WebGPU), fall back
+// to the CPU engine rather than failing the job.
+async function loadAsr(asr, onProgress) {
+  if (asr !== gpu) return whisper.load(manifest, onProgress);
+  try {
+    await gpu.load(manifest, onProgress);
+  } catch (err) {
+    console.warn("GPU engine failed, using the CPU:", err);
+    gpuFailed = true;
+    updateModelHint();
+    await whisper.load(manifest, onProgress);
+  }
 }
 
 async function ensureEngines(job) {
-  fillModelPicker(await loadManifest());
-  if (sherpa.loading && whisper.loading) {
+  await fillModelPicker(await loadManifest());
+  const asr = asrEngine();
+  if (sherpa.loading && asr.loading) {
     // Already loaded by an earlier job (jobs run one at a time).
-    await Promise.all([sherpa.loading, whisper.loading]);
+    await Promise.all([sherpa.loading, asr.loading]);
     return;
   }
   engineBanner.hidden = false;
@@ -224,7 +316,7 @@ async function ensureEngines(job) {
   try {
     // One at a time so the banner shows a single, meaningful progress bar.
     await sherpa.load(manifest, onProgress);
-    await whisper.load(manifest, onProgress);
+    await loadAsr(asr, onProgress);
   } catch (err) {
     engineStatus.textContent = "Loading the engines failed: " + err.message;
     engineProgress.hidden = true;
@@ -744,23 +836,40 @@ async function processJob(job) {
   stopEstimatedProgress(job);
   const dsegs = diar.segments.map((s) => ({ s: s.start, e: s.end, spk: s.speaker }));
 
-  const model = manifest.whisper.models.find((m) => m.id === modelSelect.value) || manifest.whisper.models.find((m) => m.default);
-  job.model = model.name;
   job.translate = translateInput.checked;
-  setStatus(job, "Transcribing");
-  const tr = await whisper.request(
-    { type: "transcribe", samples, language, translate: job.translate, modelUrl: model.url },
-    [samples.buffer],
-    (p) => {
-      if (p.label) {
-        setStatus(job, `Downloading ${p.label}`, p.total ? p.loaded / p.total : undefined);
-      } else if (p.started) {
-        setStatus(job, "Transcribing");
-      } else {
-        setStatus(job, "Transcribing", p.fraction);
+  const transcribe = () => {
+    const model = selectedModel();
+    const onGpu = useGpu(model);
+    job.model = onGpu ? `${model.onnx} (GPU)` : model.name;
+    setStatus(job, "Transcribing");
+    return (onGpu ? gpu : whisper).request(
+      { type: "transcribe", samples, language, translate: job.translate, modelUrl: onGpu ? model.onnx : model.url, dtype: model.onnxDtype },
+      // Keep a copy while on the GPU, in case it fails and the CPU retries.
+      onGpu ? [] : [samples.buffer],
+      (p) => {
+        if (p.label) {
+          setStatus(job, `Downloading ${p.label}`, p.total ? p.loaded / p.total : undefined);
+        } else if (p.started) {
+          setStatus(job, "Transcribing");
+        } else {
+          setStatus(job, "Transcribing", p.fraction);
+        }
       }
-    }
-  );
+    );
+  };
+  let tr;
+  try {
+    tr = await transcribe();
+  } catch (err) {
+    // A GPU that loaded but can't run the model (out of graphics memory,
+    // a driver bug): finish this file on the CPU and stay there.
+    if (!job.model.endsWith("(GPU)") || engineSelect.value === "gpu") throw err;
+    console.warn("GPU transcription failed, retrying on the CPU:", err);
+    gpuFailed = true;
+    updateModelHint();
+    await whisper.load(manifest, (p) => setStatus(job, `Downloading ${p.label}`, p.total ? p.loaded / p.total : undefined));
+    tr = await transcribe();
+  }
 
   job.rows = assignSpeakers(tr.segments, dsegs);
   finishJob(job);
@@ -882,8 +991,13 @@ document.querySelectorAll(".panel-toggle").forEach((toggle) => {
 
 const settingsDialog = document.getElementById("settings-dialog");
 const themeSelect = document.getElementById("theme");
+// Red dot on Settings until the first visit, so new users find the model choice.
+const settingsBadge = document.getElementById("settings-badge");
+try { settingsBadge.hidden = localStorage.getItem("settingsSeen") === "1"; } catch (e) {}
 document.getElementById("settings-open").addEventListener("click", () => {
   themeSelect.value = themePref(); // themePref/setTheme: inline script in index.html
+  settingsBadge.hidden = true;
+  try { localStorage.setItem("settingsSeen", "1"); } catch (e) {}
   settingsDialog.showModal();
 });
 themeSelect.addEventListener("change", () => setTheme(themeSelect.value));
@@ -901,6 +1015,7 @@ gameToggle.addEventListener("click", () => {
     flappyCanvas.hidden = false;
     gameToggle.textContent = "Hide game";
     stopGame = mountFlappyGame(flappyCanvas);
+    gameToggle.blur(); // so space flaps instead of pressing "Hide game"
   }
 });
 
@@ -911,3 +1026,4 @@ if (checkCompat()) {
 }
 loadManifest().then(fillModelPicker).catch(() => {}); // ensureEngines retries and reports
 
+translateInput.addEventListener("change", updateModelHint);

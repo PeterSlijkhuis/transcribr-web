@@ -187,9 +187,12 @@ embeddings.
 <details>
 <summary><strong>Why isn't there a "large" model?</strong></summary>
 
-See [Why these models](#why-these-models). Short version: on a CPU inside a
-browser tab it would be very slow for most machines and close to the
-engine's memory limit.
+There is, on a graphics card: pick **Accurate** and it runs Whisper
+large-v3-turbo through WebGPU (a 1.6 GB download, cached after the first
+time). On the processor Accurate stays on `medium`, because large inside a
+browser tab would be very slow for most machines and close to the engine's
+memory limit (see [Why these models](#why-these-models)). Turbo can't
+translate, so with Translate to English on, Accurate uses the processor.
 </details>
 
 <details>
@@ -213,11 +216,13 @@ a bit on top. There's a small game to play while you wait.
 <details>
 <summary><strong>Can it use my GPU?</strong></summary>
 
-Yes, for Fast and Standard, and by default it does so on its own. With
+Yes, and by default it does so on its own. With
 **Model** and **Run on** both left at *Automatic* in ⚙️ Settings, the app
 checks your device and picks Standard on the graphics card when there is a
 usable one, Standard on the processor with 4+ cores, and Fast below that. If
-the graphics card fails, the file finishes on the processor. The GPU path runs
+the graphics card fails, the file finishes on the processor. Automatic never
+picks Accurate: on a graphics card it means large-v3-turbo, a 1.6 GB
+download, and on a processor it's slower than the recording. The GPU path runs
 Whisper through WebGPU ([Transformers.js](https://github.com/huggingface/transformers.js)
 with the ONNX exports of the same models), so it needs a recent Chrome or
 Edge. On one tested laptop, Standard went from 1.9x to 5.4x faster than real

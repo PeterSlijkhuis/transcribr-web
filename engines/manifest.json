@@ -26,6 +26,9 @@
         "label": "Accurate (medium, 514 MB)",
         "name": "ggml-medium-q5_0",
         "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin",
+        "onnx": "onnx-community/whisper-large-v3-turbo",
+        "onnxDtype": { "encoder_model": "fp16", "decoder_model_merged": "q4" },
+        "onnxNoTranslate": true,
         "hardware": "An 8+ core CPU. Several times slower than real-time; a 10-minute file can take 10-20 minutes."
       }
     ]

@@ -4,17 +4,19 @@
 // everywhere and on weak integrated graphics it can lose to the CPU.
 //
 // Same protocol as whisper-worker.js, except modelUrl is an ONNX repo id
-// (manifest whisper.models[].onnx) and there is no per-segment progress.
+// (manifest whisper.models[].onnx), an optional dtype rides along, and
+// there is no per-segment progress.
 import { pipeline } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.min.js";
 
 let asr = null;
 let repo = null;
 
 // fp32 encoder + 4-bit decoder: the dtypes the Transformers.js Whisper
-// WebGPU examples use, and what bench.html measured.
+// WebGPU examples use, and what bench.html measured. A tier can override
+// them (manifest `onnxDtype`), e.g. large-v3-turbo's fp32 encoder is 2.5 GB.
 const DTYPE = { encoder_model: "fp32", decoder_model_merged: "q4" };
 
-async function ensureModel(id) {
+async function ensureModel(id, dtype) {
   if (id === repo) return;
   if (asr) await asr.dispose();
   asr = null;
@@ -24,7 +26,7 @@ async function ensureModel(id) {
   const files = {};
   asr = await pipeline("automatic-speech-recognition", id, {
     device: "webgpu",
-    dtype: DTYPE,
+    dtype: dtype || DTYPE,
     progress_callback: (p) => {
       if (p.status !== "progress" || !p.total) return;
       files[p.file] = p;
@@ -45,8 +47,8 @@ function isNoise(text) {
   return text === "" || /^\[[^\]]*\]$/.test(text) || /^\([^)]*\)$/.test(text) || /^\*[^*]*\*$/.test(text);
 }
 
-async function transcribe(samples, language, translate, id) {
-  await ensureModel(id);
+async function transcribe(samples, language, translate, id, dtype) {
+  await ensureModel(id, dtype);
   self.postMessage({ type: "progress", started: true });
   const out = await asr(samples, {
     chunk_length_s: 30,
@@ -68,7 +70,7 @@ self.onmessage = async (ev) => {
       if (!(navigator.gpu && (await navigator.gpu.requestAdapter()))) throw new Error("this browser has no usable GPU (WebGPU)");
       self.postMessage({ type: "loaded" });
     } else if (msg.type === "transcribe") {
-      self.postMessage({ type: "result", segments: await transcribe(msg.samples, msg.language, msg.translate, msg.modelUrl) });
+      self.postMessage({ type: "result", segments: await transcribe(msg.samples, msg.language, msg.translate, msg.modelUrl, msg.dtype) });
     }
   } catch (err) {
     self.postMessage({ type: "error", error: String((err && err.message) || err) });

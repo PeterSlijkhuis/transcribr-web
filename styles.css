@@ -419,6 +419,13 @@ progress::-moz-progress-bar {
   color: var(--ink);
   transition: border-color var(--fast);
 }
+/* Windows Chrome/Edge draw the open dropdown list with the select's text
+   color but their own light background, so dark-mode options came out
+   light-on-white. Style the options explicitly. */
+select option {
+  background: var(--surface);
+  color: var(--ink);
+}
 .field input:hover,
 .field select:hover {
   border-color: var(--brand-line);
@@ -573,6 +580,7 @@ input[type="checkbox"] {
   margin-top: 0.4rem;
 }
 .job-transcript {
+  position: relative; /* offsetTop of lines is measured from here, for follow-along scrolling */
   max-height: 400px;
   overflow-y: auto;
   background: var(--surface-2);
@@ -591,9 +599,57 @@ input[type="checkbox"] {
 }
 .turn-time {
   color: var(--muted);
+  font: inherit;
   font-size: 0.82em;
   font-variant-numeric: tabular-nums;
   margin: 0 0.4rem;
+  padding: 0 0.2rem;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.turn-time:hover,
+.turn-time:focus-visible {
+  color: var(--brand-ink);
+  background: var(--brand-soft);
+}
+.turn.playing,
+.edit-row.playing {
+  background: var(--brand-soft);
+  border-radius: 4px;
+  outline: 2px solid var(--brand-line);
+  outline-offset: 0.2rem;
+}
+.job-audio {
+  display: block;
+  width: 100%;
+  margin: 0.6rem 0 0.2rem;
+}
+.job-find {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
+}
+.job-find input {
+  width: 9rem;
+  font: inherit;
+  padding: 0.25rem 0.6rem;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.find-count,
+.find-tip {
+  color: var(--muted);
+}
+.find-tip {
+  font-size: 0.82em;
+  flex-basis: 100%;
 }
 .edit-row {
   display: flex;

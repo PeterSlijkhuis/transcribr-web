@@ -82,7 +82,7 @@ try {
     path.join(fixtures, expected.twoSpeaker.file),
   ]);
 
-  // Adding files should fold the Settings panel out of the way (it's still
+  // Adding files should fold the File options panel out of the way (it's still
   // reachable, just not auto-folded twice).
   assert.equal(await page.getAttribute('[aria-controls="settings-body"]', "aria-expanded"), "false", "settings panel did not auto-fold");
 
@@ -187,10 +187,11 @@ try {
 
   // Same file again with the "medium" model, to exercise the model-swap
   // path in engines/whisper-worker.js (ensureModel only reloads when the
-  // URL actually changes from the default). Settings auto-folded when the
-  // first files were added, so unfold it again to reach the model picker.
-  await page.click('[aria-controls="settings-body"]');
+  // URL actually changes from the default). The model picker lives in the
+  // Settings dialog.
+  await page.click("#settings-open");
   await page.selectOption("#model", "medium");
+  await page.click("#settings-dialog .btn");
   await page.setInputFiles("#file-input", path.join(fixtures, expected.singleSpeaker.file));
   await waitForJobs(page, 3);
   await assertNoErrors(page);

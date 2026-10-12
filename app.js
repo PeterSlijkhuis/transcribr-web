@@ -185,13 +185,22 @@ function updateModelHint(m) {
   modelHint.textContent = model && model.hardware ? "Recommended: " + model.hardware : "";
 }
 
+// The model choice is remembered per browser, like the theme.
+function savedModel() {
+  try { return localStorage.getItem("model"); } catch (e) { return null; }
+}
+
 function fillModelPicker(m) {
   if (!modelSelect.options.length) {
     for (const model of m.whisper.models) {
       const opt = new Option(model.label, model.id, false, Boolean(model.default));
       modelSelect.add(opt);
     }
-    modelSelect.addEventListener("change", () => updateModelHint(m));
+    if (m.whisper.models.some((x) => x.id === savedModel())) modelSelect.value = savedModel();
+    modelSelect.addEventListener("change", () => {
+      try { localStorage.setItem("model", modelSelect.value); } catch (e) {}
+      updateModelHint(m);
+    });
   }
   updateModelHint(m);
 }
@@ -864,6 +873,14 @@ document.querySelectorAll(".panel-toggle").forEach((toggle) => {
     setCollapsed(body, wasExpanded);
   });
 });
+
+const settingsDialog = document.getElementById("settings-dialog");
+const themeSelect = document.getElementById("theme");
+document.getElementById("settings-open").addEventListener("click", () => {
+  themeSelect.value = themePref(); // themePref/setTheme: inline script in index.html
+  settingsDialog.showModal();
+});
+themeSelect.addEventListener("change", () => setTheme(themeSelect.value));
 
 const gameToggle = document.getElementById("game-toggle");
 const flappyCanvas = document.getElementById("flappy-canvas");

@@ -53,10 +53,12 @@ are compiled to WebAssembly and run on your own CPU, inside the browser tab.
 
 The page walks you through three numbered steps.
 
-**1. Settings.** Pick a model, and optionally a language and the number of
-speakers. Leaving them blank or at 0 means "detect automatically".
+**1. File options.** Optionally set the language and the number of
+speakers. Leaving them blank or at 0 means "detect automatically". The
+model and light/dark appearance live under **⚙️ Settings** at the top right,
+and both are remembered in your browser.
 
-<img src="docs/images/start.png" alt="The settings step: speakers, language, model picker with a hardware recommendation, and a translate toggle" width="640" />
+<img src="docs/images/start.png" alt="The start of the page: the Settings button, and the file options step with speakers, language and a translate toggle" width="640" />
 
 **2. Add your files.** Drag audio or video onto the drop zone, or click to
 choose. Anything your browser can play works (MP3, WAV, M4A, MP4, WebM, ...).
@@ -96,7 +98,7 @@ Check it yourself: open DevTools → Network while transcribing, or read
 
 ## Choosing a model
 
-The app shows a recommendation next to the picker. Rule of thumb: start with
+Pick the model under **⚙️ Settings**; the app shows a hardware recommendation next to the picker. Rule of thumb: start with
 **Standard**; drop to **Fast** on an older laptop, step up to **Accurate**
 for hard audio (accents, noise, crosstalk) if you can wait.
 

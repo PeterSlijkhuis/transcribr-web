@@ -11,9 +11,28 @@
        can't set COOP/COEP headers (GitHub Pages), reloading once if needed. -->
   <script src="coi-serviceworker.js"></script>
   <link rel="stylesheet" href="styles.css" />
+  <!-- Theme: "system" follows the OS; the choice is remembered per browser.
+       Inline and in <head> so the page never flashes the wrong theme. -->
+  <script>
+    function setTheme(pref) {
+      try { localStorage.setItem("theme", pref); } catch (e) {}
+      applyTheme();
+    }
+    function themePref() {
+      try { return localStorage.getItem("theme") || "system"; } catch (e) { return "system"; }
+    }
+    function applyTheme() {
+      const pref = themePref();
+      const dark = pref === "dark" || (pref === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
+    }
+    applyTheme();
+    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme);
+  </script>
 </head>
 <body>
   <header class="hero">
+    <button type="button" id="settings-open" class="settings-open" aria-haspopup="dialog">&#9881;&#65039; Settings</button>
     <p class="hero-eyebrow">&#127897;&#65039; Speech to text, speakers included</p>
     <h1>transcribr-web</h1>
     <p class="subtitle">Transcription with speaker detection, entirely in your browser. Nothing you pick leaves your computer. Desktop Chrome or Edge.</p>
@@ -28,7 +47,7 @@
 
   <section class="panel">
     <button type="button" class="step-heading panel-toggle" aria-expanded="true" aria-controls="settings-body">
-      <span class="step-num">1</span>Settings<span class="chevron" aria-hidden="true">&#9662;</span>
+      <span class="step-num">1</span>File options<span class="chevron" aria-hidden="true">&#9662;</span>
     </button>
     <div id="settings-body" class="panel-body">
       <div class="collapsible-inner">
@@ -42,11 +61,6 @@
           <label for="language">Language</label>
           <input type="text" id="language" placeholder="e.g. en, nl" />
           <p class="hint">Blank = detect automatically</p>
-        </div>
-        <div class="field field-wide">
-          <label for="model">Model</label>
-          <select id="model"></select>
-          <p class="hint" id="model-hint"></p>
         </div>
         <div class="field field-checkbox">
           <label class="checkbox-label"><input type="checkbox" id="translate" /> Translate to English</label>
@@ -67,7 +81,7 @@
         <span class="dropzone-icon" aria-hidden="true">&#8593;</span>
         <span class="dropzone-text"><strong>Drop audio or video files here</strong><br />or click to choose files</span>
       </label>
-      <p class="hint">Settings above apply to files as they start processing, so you can still adjust them per file.</p>
+      <p class="hint">Options above apply to files as they start processing, so you can still adjust them per file.</p>
       </div>
     </div>
   </section>
@@ -86,6 +100,27 @@
       </div>
     </div>
   </section>
+
+  <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title">
+    <form method="dialog">
+      <h2 id="settings-title">Settings</h2>
+      <div class="field">
+        <label for="model">Model</label>
+        <select id="model"></select>
+        <p class="hint" id="model-hint"></p>
+      </div>
+      <div class="field">
+        <label for="theme">Appearance</label>
+        <select id="theme">
+          <option value="system">Match my system</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </div>
+      <p class="hint">Saved in this browser.</p>
+      <div class="settings-actions"><button class="btn btn-sm">Done</button></div>
+    </form>
+  </dialog>
 
   <script type="module" src="app.js"></script>
 </body>

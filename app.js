@@ -220,7 +220,9 @@ function selectedModel() {
 // The GPU engine only covers tiers with an ONNX export (manifest `onnx`);
 // anything else stays on whisper.cpp.
 function useGpu(model) {
-  return engineSelect.value !== "cpu" && gpuAvailable() && Boolean(model.onnx);
+  // large-v3-turbo was trained without translation data, so a tier marked
+  // onnxNoTranslate goes to the CPU model when Translate is on.
+  return engineSelect.value !== "cpu" && gpuAvailable() && Boolean(model.onnx) && !(translateInput.checked && model.onnxNoTranslate);
 }
 
 function asrEngine() {
@@ -241,12 +243,14 @@ function updateModelHint() {
   modelHint.textContent =
     modelSelect.value === "auto"
       ? `Using ${model.label.split(" (")[0]} on ${where}, picked for this device (${describeHardware()}).`
-      : `Runs on ${where}. Recommended hardware: ${model.hardware}`;
+      : useGpu(model)
+        ? `Runs on the graphics card (${model.onnx.split("/")[1]}).`
+        : `Runs on the processor. Recommended hardware: ${model.hardware}`;
   engineHint.textContent = !hardware.gpu
     ? "This browser has no usable GPU (WebGPU), so everything runs on the processor. A recent Chrome or Edge may have one."
     : selectedModel().onnx
       ? "The graphics card was about 3x faster on a tested laptop. Its first run downloads a separate copy of the model."
-      : "Accurate has no GPU version yet, so it always runs on the processor.";
+      : "This model has no GPU version, so it runs on the processor.";
 }
 
 // The model choice is remembered per browser, like the theme.
@@ -839,7 +843,7 @@ async function processJob(job) {
     job.model = onGpu ? `${model.onnx} (GPU)` : model.name;
     setStatus(job, "Transcribing");
     return (onGpu ? gpu : whisper).request(
-      { type: "transcribe", samples, language, translate: job.translate, modelUrl: onGpu ? model.onnx : model.url },
+      { type: "transcribe", samples, language, translate: job.translate, modelUrl: onGpu ? model.onnx : model.url, dtype: model.onnxDtype },
       // Keep a copy while on the GPU, in case it fails and the CPU retries.
       onGpu ? [] : [samples.buffer],
       (p) => {
@@ -1022,3 +1026,4 @@ if (checkCompat()) {
 }
 loadManifest().then(fillModelPicker).catch(() => {}); // ensureEngines retries and reports
 
+translateInput.addEventListener("change", updateModelHint);

@@ -9,6 +9,7 @@
         "label": "Fast (tiny, 32 MB)",
         "name": "ggml-tiny-q5_1",
         "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin",
+        "onnx": "onnx-community/whisper-tiny",
         "hardware": "Any laptop from the last decade. Real-time or faster on a single core."
       },
       {
@@ -16,6 +17,7 @@
         "label": "Standard (small, 190 MB)",
         "name": "ggml-small-q5_1",
         "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
+        "onnx": "onnx-community/whisper-small",
         "default": true,
         "hardware": "A 4+ core CPU from the last ~5 years. Roughly real-time with 4 threads."
       },

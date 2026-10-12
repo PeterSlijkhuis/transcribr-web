@@ -419,6 +419,13 @@ progress::-moz-progress-bar {
   color: var(--ink);
   transition: border-color var(--fast);
 }
+/* Windows Chrome/Edge draw the open dropdown list with the select's text
+   color but their own light background, so dark-mode options came out
+   light-on-white. Style the options explicitly. */
+select option {
+  background: var(--surface);
+  color: var(--ink);
+}
 .field input:hover,
 .field select:hover {
   border-color: var(--brand-line);

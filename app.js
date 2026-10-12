@@ -199,6 +199,10 @@ const hardwareReady = (async () => {
     hardware.gpu = Boolean(a) && !(a.isFallbackAdapter || (a.info && a.info.isFallbackAdapter));
   } catch (e) {}
 })();
+// How long the GPU worker may stay silent while downloading or preparing a
+// model before it's treated as hung. ponytail: fixed guess; first-run shader
+// compiles on slow GPUs could exceed it, tune if real users trip it.
+const GPU_QUIET_LIMIT_MS = 180000;
 // Set when the GPU engine fails on this device; Automatic then sticks to
 // the CPU for the rest of the visit.
 let gpuFailed = false;
@@ -837,25 +841,41 @@ async function processJob(job) {
   const dsegs = diar.segments.map((s) => ({ s: s.start, e: s.end, spk: s.speaker }));
 
   job.translate = translateInput.checked;
-  const transcribe = () => {
+  const transcribe = async () => {
     const model = selectedModel();
     const onGpu = useGpu(model);
     job.model = onGpu ? `${model.onnx} (GPU)` : model.name;
     setStatus(job, "Transcribing");
-    return (onGpu ? gpu : whisper).request(
-      { type: "transcribe", samples, language, translate: job.translate, modelUrl: onGpu ? model.onnx : model.url, dtype: model.onnxDtype },
-      // Keep a copy while on the GPU, in case it fails and the CPU retries.
-      onGpu ? [] : [samples.buffer],
-      (p) => {
-        if (p.label) {
-          setStatus(job, `Downloading ${p.label}`, p.total ? p.loaded / p.total : undefined);
-        } else if (p.started) {
-          setStatus(job, "Transcribing");
-        } else {
-          setStatus(job, "Transcribing", p.fraction);
+    // Preparing a model on some GPUs never finishes and never errors. If
+    // the GPU worker goes quiet before transcription starts, kill it so the
+    // CPU fallback below takes over.
+    let watchdog = null;
+    const arm = () => {
+      clearTimeout(watchdog);
+      watchdog = setTimeout(() => gpu.crash(new Error("the graphics card stopped responding while preparing the model")), GPU_QUIET_LIMIT_MS);
+    };
+    if (onGpu) arm();
+    try {
+      return await (onGpu ? gpu : whisper).request(
+        { type: "transcribe", samples, language, translate: job.translate, modelUrl: onGpu ? model.onnx : model.url, dtype: model.onnxDtype },
+        // Keep a copy while on the GPU, in case it fails and the CPU retries.
+        onGpu ? [] : [samples.buffer],
+        (p) => {
+          if (onGpu) p.started ? clearTimeout(watchdog) : arm();
+          if (p.label) {
+            setStatus(job, `Downloading ${p.label}`, p.total ? p.loaded / p.total : undefined);
+          } else if (p.preparing) {
+            setStatus(job, "Preparing the model on the graphics card");
+          } else if (p.started) {
+            setStatus(job, "Transcribing");
+          } else {
+            setStatus(job, "Transcribing", p.fraction);
+          }
         }
-      }
-    );
+      );
+    } finally {
+      clearTimeout(watchdog);
+    }
   };
   let tr;
   try {

@@ -64,7 +64,11 @@ if (typeof window === 'undefined') {
         const coi = {
             shouldRegister: () => true,
             shouldDeregister: () => false,
-            coepCredentialless: () => !(window.chrome || window.netscape),
+            // transcribr-web: always require-corp. Upstream's default picks
+            // "credentialless" for Safari, which doesn't support it, so Safari
+            // never became cross-origin isolated. Every cross-origin load here
+            // is CORS, which require-corp allows.
+            coepCredentialless: () => false,
             doReload: () => window.location.reload(),
             quiet: false,
             ...window.coi

@@ -7,8 +7,12 @@
 // again, to cover model switching and the quantized models. Nothing is mocked: the engines come
 // from the Hugging Face URLs in engines/manifest.json. A persistent browser
 // profile keeps the ~275MB engine download in Cache Storage between runs
-// (CI caches .playwright-profile/ keyed on the manifest).
-import { chromium } from "playwright";
+// (CI caches .playwright-profile-<browser>/ keyed on the manifest).
+//
+// BROWSER=chromium|firefox|webkit picks the engine (webkit is Safari's).
+// The server sends no COOP/COEP headers, like GitHub Pages, so the page
+// only works if coi-serviceworker.js isolates it, as in production.
+import { chromium, firefox, webkit } from "playwright";
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -52,16 +56,20 @@ async function assertNoErrors(page) {
   assert.deepEqual(errors, [], "jobs failed");
 }
 
+const browserName = process.env.BROWSER || "chromium";
+const browserType = { chromium, firefox, webkit }[browserName];
+process.env.PAGES = "1";
 const server = await startServer(PORT);
-const profileDir = path.join(repoRoot, ".playwright-profile");
+const profileDir = path.join(repoRoot, `.playwright-profile-${browserName}`);
 if (!existsSync(profileDir)) mkdirSync(profileDir, { recursive: true });
-const context = await chromium.launchPersistentContext(profileDir, { headless: true, acceptDownloads: true });
+const context = await browserType.launchPersistentContext(profileDir, { headless: true, acceptDownloads: true });
 
 try {
   const page = await context.newPage();
   page.on("console", (msg) => console.log("[page]", msg.text()));
   page.on("pageerror", (err) => console.log("[pageerror]", err.message));
   await page.goto(`http://localhost:${PORT}/index.html`);
+  // The service worker reloads the page once to isolate it.
   await page.waitForFunction(() => self.crossOriginIsolated === true, null, { timeout: 15_000 });
 
   // The optional waiting-room game: doesn't touch transcription state, so
@@ -202,7 +210,7 @@ try {
   const mediumJson = JSON.parse((await grab(".export-json", 3)).toString("utf8"));
   assert.equal(mediumJson.whisper_model, "whisper.cpp ggml-medium-q5_0 (wasm)");
 
-  console.log(`PASS: expected words found (small and medium); ${speakers.length} speakers; renamed speaker in exports; CSV/JSON/SRT/DOCX valid`);
+  console.log(`PASS (${browserName}): expected words found (small and medium); ${speakers.length} speakers; renamed speaker in exports; CSV/JSON/SRT/DOCX valid`);
 } catch (err) {
   // Leave enough in the CI log to diagnose without a rerun.
   const html = await context.pages()[0]?.innerHTML("#job-list").catch(() => "(page gone)");

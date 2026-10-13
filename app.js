@@ -14,6 +14,11 @@ import { mountFlappyGame } from "./flappy.js";
 
 const SAMPLE_RATE = 16000; // both engines take 16kHz mono
 const LONG_RECORDING_WARN_SEC = 60 * 60; // soft warning threshold, see spec
+// whisper.cpp's language codes (g_lang in its src/whisper.cpp). Any other
+// code makes it log "unknown language" and return no text at all.
+const LANGUAGES = new Set(
+  "en zh de es ru ko fr ja pt tr pl ca nl ar sv it id hi fi vi he uk el ms cs ro da hu ta no th ur hr bg lt la mi ml cy sk te fa lv bn sr az sl kn et mk br eu is hy ne mn bs kk sq sw gl mr pa si km sn yo so af oc ka be tg sd gu am yi lo uz fo ht ps tk nn mt sa lb my bo tl mg as tt haw ln ha ba jw su yue".split(" ")
+);
 
 const compatBanner = document.getElementById("compat-banner");
 const engineBanner = document.getElementById("engine-banner");
@@ -223,10 +228,10 @@ function selectedModel() {
 
 // The GPU engine only covers tiers with an ONNX export (manifest `onnx`);
 // anything else stays on whisper.cpp.
-function useGpu(model) {
+function useGpu(model, translate = translateInput.checked) {
   // large-v3-turbo was trained without translation data, so a tier marked
   // onnxNoTranslate goes to the CPU model when Translate is on.
-  return engineSelect.value !== "cpu" && gpuAvailable() && Boolean(model.onnx) && !(translateInput.checked && model.onnxNoTranslate);
+  return engineSelect.value !== "cpu" && gpuAvailable() && Boolean(model.onnx) && !(translate && model.onnxNoTranslate);
 }
 
 function asrEngine() {
@@ -411,8 +416,8 @@ function allSpeakerIds(job) {
 function addSpeaker(job) {
   const used = allSpeakerIds(job);
   let n = used.length + 1;
-  while (used.includes(`speaker_${n}`)) n++;
-  job.extraSpeakers.push(`speaker_${n}`);
+  while (used.includes(`Speaker ${n}`)) n++;
+  job.extraSpeakers.push(`Speaker ${n}`);
   renderSpeakerNames(job);
   renderTranscript(job);
 }
@@ -802,7 +807,7 @@ async function processJob(job) {
   job.status = "processing";
   job.el.dataset.status = "processing";
   const language = languageInput.value.trim().toLowerCase() || "auto";
-  if (!/^(auto|[a-z]{2,3})$/.test(language)) {
+  if (language !== "auto" && !LANGUAGES.has(language)) {
     throw new Error(`"${languageInput.value}" is not a language code; use a code like en or nl, or leave it blank`);
   }
 
@@ -843,7 +848,8 @@ async function processJob(job) {
   job.translate = translateInput.checked;
   const transcribe = async () => {
     const model = selectedModel();
-    const onGpu = useGpu(model);
+    const onGpu = useGpu(model, job.translate);
+    const engine = onGpu ? gpu : whisper;
     job.model = onGpu ? `${model.onnx} (GPU)` : model.name;
     setStatus(job, "Transcribing");
     // Preparing a model on some GPUs never finishes and never errors. If
@@ -854,24 +860,28 @@ async function processJob(job) {
       clearTimeout(watchdog);
       watchdog = setTimeout(() => gpu.crash(new Error("the graphics card stopped responding while preparing the model")), GPU_QUIET_LIMIT_MS);
     };
+    const onProgress = (p) => {
+      if (onGpu) p.started ? clearTimeout(watchdog) : arm();
+      if (p.label) {
+        setStatus(job, `Downloading ${p.label}`, p.total ? p.loaded / p.total : undefined);
+      } else if (p.preparing) {
+        setStatus(job, "Preparing the model on the graphics card");
+      } else if (p.started) {
+        setStatus(job, "Transcribing");
+      } else {
+        setStatus(job, "Transcribing", p.fraction);
+      }
+    };
+    // Settings can change while speakers are being detected, so this engine
+    // may not be the one ensureEngines loaded. load() is a no-op if it is.
+    await engine.load(manifest, onProgress);
     if (onGpu) arm();
     try {
-      return await (onGpu ? gpu : whisper).request(
+      return await engine.request(
         { type: "transcribe", samples, language, translate: job.translate, modelUrl: onGpu ? model.onnx : model.url, dtype: model.onnxDtype },
         // Keep a copy while on the GPU, in case it fails and the CPU retries.
         onGpu ? [] : [samples.buffer],
-        (p) => {
-          if (onGpu) p.started ? clearTimeout(watchdog) : arm();
-          if (p.label) {
-            setStatus(job, `Downloading ${p.label}`, p.total ? p.loaded / p.total : undefined);
-          } else if (p.preparing) {
-            setStatus(job, "Preparing the model on the graphics card");
-          } else if (p.started) {
-            setStatus(job, "Transcribing");
-          } else {
-            setStatus(job, "Transcribing", p.fraction);
-          }
-        }
+        onProgress
       );
     } finally {
       clearTimeout(watchdog);
@@ -887,7 +897,6 @@ async function processJob(job) {
     console.warn("GPU transcription failed, retrying on the CPU:", err);
     gpuFailed = true;
     updateModelHint();
-    await whisper.load(manifest, (p) => setStatus(job, `Downloading ${p.label}`, p.total ? p.loaded / p.total : undefined));
     tr = await transcribe();
   }
 

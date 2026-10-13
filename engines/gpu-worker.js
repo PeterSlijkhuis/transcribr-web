@@ -10,6 +10,9 @@ import { pipeline } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers
 
 let asr = null;
 let repo = null;
+// fp16 weights need the GPU's shader-f16 feature; without it Transformers.js
+// refuses to load them, so those parts fall back to 4-bit.
+let f16 = false;
 
 // fp32 encoder + 4-bit decoder: the dtypes the Transformers.js Whisper
 // WebGPU examples use, and what bench.html measured. A tier can override
@@ -26,7 +29,7 @@ async function ensureModel(id, dtype) {
   const files = {};
   asr = await pipeline("automatic-speech-recognition", id, {
     device: "webgpu",
-    dtype: dtype || DTYPE,
+    dtype: Object.fromEntries(Object.entries(dtype || DTYPE).map(([k, v]) => [k, v === "fp16" && !f16 ? "q4" : v])),
     progress_callback: (p) => {
       // After each file lands; once the last one has, the GPU compiles and
       // uploads the model, which reports nothing until it's done.
@@ -70,7 +73,9 @@ self.onmessage = async (ev) => {
   const msg = ev.data;
   try {
     if (msg.type === "load") {
-      if (!(navigator.gpu && (await navigator.gpu.requestAdapter()))) throw new Error("this browser has no usable GPU (WebGPU)");
+      const adapter = navigator.gpu && (await navigator.gpu.requestAdapter());
+      if (!adapter) throw new Error("this browser has no usable GPU (WebGPU)");
+      f16 = adapter.features.has("shader-f16");
       self.postMessage({ type: "loaded" });
     } else if (msg.type === "transcribe") {
       self.postMessage({ type: "result", segments: await transcribe(msg.samples, msg.language, msg.translate, msg.modelUrl, msg.dtype) });

@@ -23,13 +23,9 @@
       },
       {
         "id": "medium",
-        "label": "Accurate (large-v3-turbo, 574 MB)",
-        "name": "ggml-large-v3-turbo-q5_0",
-        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
-        "translate": {
-          "name": "ggml-medium-q5_0",
-          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin"
-        },
+        "label": "Accurate (medium, 514 MB)",
+        "name": "ggml-medium-q5_0",
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin",
         "onnx": "onnx-community/whisper-large-v3-turbo",
         "onnxDtype": { "encoder_model": "fp16", "decoder_model_merged": "q4" },
         "onnxNoTranslate": true,

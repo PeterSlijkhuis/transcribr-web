@@ -10,7 +10,7 @@ No server, no install, no upload. Your audio never leaves your machine.
 
 ### [→ Try it live](https://peterslijkhuis.github.io/transcribr-web/)
 
-<sub>Desktop Chrome or Edge</sub>
+<sub>Desktop Chrome, Edge, Firefox or Safari</sub>
 
 <br />
 
@@ -198,10 +198,11 @@ translate, so with Translate to English on, Accurate uses the processor.
 <details>
 <summary><strong>Which browsers work?</strong></summary>
 
-Current desktop **Chrome** and **Edge**. The engines need WebAssembly SIMD
-and `SharedArrayBuffer` (cross-origin isolation); the page checks both on
-load and tells you if your browser falls short. Firefox and Safari may work
-but aren't tested. Phones and tablets usually don't have the memory.
+Current desktop **Chrome**, **Edge**, **Firefox** and **Safari**. CI runs the
+full end-to-end check, with the real engines, in Chromium, Firefox and WebKit
+(Safari's engine). The engines need WebAssembly SIMD and `SharedArrayBuffer`
+(cross-origin isolation); the page checks both on load and tells you if your
+browser falls short. Phones and tablets usually don't have the memory.
 </details>
 
 <details>

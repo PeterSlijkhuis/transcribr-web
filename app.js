@@ -59,7 +59,7 @@ function checkCompat() {
     simd = WebAssembly.validate(SIMD_PROBE);
   } catch (e) {}
   if (!simd) {
-    showCompatError("This browser can't run transcribr-web (no WebAssembly SIMD). Use a current desktop Chrome or Edge.");
+    showCompatError("This browser can't run transcribr-web (no WebAssembly SIMD). Use a current desktop Chrome, Edge, Firefox or Safari.");
     disablePicker("Unsupported browser, see the message above.");
     return false;
   }
@@ -70,14 +70,11 @@ function checkCompat() {
     setTimeout(() => {
       showCompatError(
         "This browser can't run transcribr-web (no cross-origin isolation / SharedArrayBuffer). " +
-          "Use desktop Chrome or Edge, and make sure the page isn't opened from a file:// path."
+          "Use a current desktop Chrome, Edge, Firefox or Safari, and make sure the page isn't opened from a file:// path."
       );
       disablePicker("Unsupported browser, see the message above.");
     }, 5000);
     return false;
-  }
-  if (!/Chrome|Edg\//.test(navigator.userAgent)) {
-    showCompatError("transcribr-web is tested on desktop Chrome and Edge. It may not work correctly in this browser.");
   }
   return true;
 }

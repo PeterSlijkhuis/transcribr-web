@@ -15,10 +15,11 @@ import { mountFlappyGame } from "./flappy.js";
 const SAMPLE_RATE = 16000; // both engines take 16kHz mono
 const LONG_RECORDING_WARN_SEC = 60 * 60; // soft warning threshold, see spec
 // whisper.cpp's language codes (g_lang in its src/whisper.cpp). Any other
-// code makes it log "unknown language" and return no text at all.
-const LANGUAGES = new Set(
-  "en zh de es ru ko fr ja pt tr pl ca nl ar sv it id hi fi vi he uk el ms cs ro da hu ta no th ur hr bg lt la mi ml cy sk te fa lv bn sr az sl kn et mk br eu is hy ne mn bs kk sq sw gl mr pa si km sn yo so af oc ka be tg sd gu am yi lo uz fo ht ps tk nn mt sa lb my bo tl mg as tt haw ln ha ba jw su yue".split(" ")
-);
+// code makes it log "unknown language" and return no text at all, so the
+// language is picked from this list rather than typed.
+const LANGUAGES = (
+  "en zh de es ru ko fr ja pt tr pl ca nl ar sv it id hi fi vi he uk el ms cs ro da hu ta no th ur hr bg lt la mi ml cy sk te fa lv bn sr az sl kn et mk br eu is hy ne mn bs kk sq sw gl mr pa si km sn yo so af oc ka be tg sd gu am yi lo uz fo ht ps tk nn mt sa lb my bo tl mg as tt haw ln ha ba jw su yue"
+).split(" ");
 
 const compatBanner = document.getElementById("compat-banner");
 const engineBanner = document.getElementById("engine-banner");
@@ -34,6 +35,20 @@ const modelHint = document.getElementById("model-hint");
 const engineSelect = document.getElementById("engine");
 const engineHint = document.getElementById("engine-hint");
 const translateInput = document.getElementById("translate");
+
+// Language names in the visitor's own language, sorted; the code is the
+// fallback where the browser has no name for it. whisper.cpp says "jw" for
+// Javanese, whose standard code is "jv".
+{
+  let names = null;
+  try { names = new Intl.DisplayNames([navigator.language, "en"], { type: "language" }); } catch (e) {}
+  const nameOf = (code) => {
+    try { return (names && names.of(code === "jw" ? "jv" : code)) || code; } catch (e) { return code; }
+  };
+  LANGUAGES.map((code) => [code, nameOf(code)])
+    .sort((a, b) => a[1].localeCompare(b[1]))
+    .forEach(([code, name]) => languageInput.add(new Option(name, code)));
+}
 
 // ---- Compatibility -------------------------------------------------------
 
@@ -329,6 +344,7 @@ async function ensureEngines(job) {
   } catch (err) {
     engineStatus.textContent = "Loading the engines failed: " + err.message;
     engineProgress.hidden = true;
+    if (job && job.cancelled) engineBanner.hidden = true;
     throw err;
   }
   engineBanner.hidden = true;
@@ -799,17 +815,17 @@ function askLongRecording(job) {
     `;
     job.el.appendChild(warn);
     warn.querySelector(".proceed").onclick = () => { warn.remove(); resolve(true); };
-    warn.querySelector(".skip").onclick = () => { warn.remove(); resolve(false); };
+    warn.querySelector(".skip").onclick = job.skipLong = () => { warn.remove(); resolve(false); };
   });
 }
 
 async function processJob(job) {
   job.status = "processing";
   job.el.dataset.status = "processing";
-  const language = languageInput.value.trim().toLowerCase() || "auto";
-  if (language !== "auto" && !LANGUAGES.has(language)) {
-    throw new Error(`"${languageInput.value}" is not a language code; use a code like en or nl, or leave it blank`);
-  }
+  // File options are read once, here, so a file uses what was set when it started.
+  const language = languageInput.value || "auto";
+  const numSpeakers = Math.min(20, Math.max(0, parseInt(numSpeakersInput.value, 10) || 0));
+  job.translate = translateInput.checked;
 
   startEstimatedProgress(job, "Decoding audio", 1500);
   let decoded;
@@ -820,6 +836,7 @@ async function processJob(job) {
     throw new Error("could not decode this file: " + ((err && err.message) || err));
   }
   stopEstimatedProgress(job);
+  if (job.cancelled) return;
   const { samples, durationSec } = decoded;
   job.durationSec = durationSec;
   if (durationSec > LONG_RECORDING_WARN_SEC && !job.longOk) {
@@ -835,22 +852,23 @@ async function processJob(job) {
 
   setStatus(job, "Loading engines");
   await ensureEngines(job);
+  if (job.cancelled) return;
 
   // sherpa-onnx's diarization call has no progress signal of its own;
   // estimate against a rough multiple of the audio's own length.
   startEstimatedProgress(job, "Detecting speakers", Math.max(1500, durationSec * 400));
-  const numSpeakers = Math.max(0, parseInt(numSpeakersInput.value, 10) || 0);
   // Posted as a copy: the same samples go to whisper next.
   const diar = await sherpa.request({ type: "diarize", samples, numSpeakers });
   stopEstimatedProgress(job);
   const dsegs = diar.segments.map((s) => ({ s: s.start, e: s.end, spk: s.speaker }));
 
-  job.translate = translateInput.checked;
   const transcribe = async () => {
     const model = selectedModel();
     const onGpu = useGpu(model, job.translate);
     const engine = onGpu ? gpu : whisper;
-    job.model = onGpu ? `${model.onnx} (GPU)` : model.name;
+    // A tier whose model can't translate names one that can (manifest `translate`).
+    const cpuModel = (job.translate && model.translate) || model;
+    job.model = onGpu ? `${model.onnx} (GPU)` : cpuModel.name;
     setStatus(job, "Transcribing");
     // Preparing a model on some GPUs never finishes and never errors. If
     // the GPU worker goes quiet before transcription starts, kill it so the
@@ -878,7 +896,7 @@ async function processJob(job) {
     if (onGpu) arm();
     try {
       return await engine.request(
-        { type: "transcribe", samples, language, translate: job.translate, modelUrl: onGpu ? model.onnx : model.url, dtype: model.onnxDtype },
+        { type: "transcribe", samples, language, translate: job.translate, modelUrl: onGpu ? model.onnx : cpuModel.url, dtype: model.onnxDtype },
         // Keep a copy while on the GPU, in case it fails and the CPU retries.
         onGpu ? [] : [samples.buffer],
         onProgress
@@ -893,7 +911,7 @@ async function processJob(job) {
   } catch (err) {
     // A GPU that loaded but can't run the model (out of graphics memory,
     // a driver bug): finish this file on the CPU and stay there.
-    if (!job.model.endsWith("(GPU)") || engineSelect.value === "gpu") throw err;
+    if (job.cancelled || !job.model.endsWith("(GPU)") || engineSelect.value === "gpu") throw err;
     console.warn("GPU transcription failed, retrying on the CPU:", err);
     gpuFailed = true;
     updateModelHint();
@@ -912,7 +930,7 @@ async function runQueue() {
     try {
       await processJob(job);
     } catch (err) {
-      failJob(job, String((err && err.message) || err));
+      if (!job.cancelled) failJob(job, String((err && err.message) || err));
     }
   }
   running = false;
@@ -926,10 +944,28 @@ function enqueue(job) {
   runQueue();
 }
 
+// Removing a running file stops it: a worker can't be interrupted mid-call,
+// so the engines are thrown away and the next file reloads them (from the
+// cache, so in seconds).
+function removeJob(job) {
+  const i = queue.indexOf(job);
+  if (i >= 0) queue.splice(i, 1);
+  if (job.status === "processing") {
+    job.cancelled = true;
+    if (job.skipLong) job.skipLong();
+    for (const engine of [sherpa, whisper, gpu]) engine.crash(new Error("cancelled"));
+  }
+  stopEstimatedProgress(job);
+  const audio = job.el.querySelector(".job-audio");
+  if (audio.src) URL.revokeObjectURL(audio.src);
+  job.el.remove();
+}
+
 function addJob(file) {
   const li = document.createElement("li");
   li.className = "job";
   li.innerHTML = `
+    <button type="button" class="btn btn-sm btn-ghost job-remove">Remove</button>
     <div class="job-name"></div>
     <div class="job-status"></div>
     <progress class="job-progress" max="1" value="0" hidden></progress>
@@ -962,6 +998,8 @@ function addJob(file) {
   li.querySelector(".job-name").textContent = file.name;
   jobList.appendChild(li);
   const job = { name: file.name, file, el: li, rows: [], names: {}, extraSpeakers: [], durationSec: 0, editing: false };
+  li.querySelector(".job-remove").setAttribute("aria-label", `Remove ${file.name}`);
+  li.querySelector(".job-remove").onclick = () => removeJob(job);
   enqueue(job);
 }
 

@@ -88,7 +88,7 @@ try {
   // fixtures are synthesized TTS voices, so pin the count rather than rely
   // on the auto-detect threshold for them.
   await page.fill("#num-speakers", String(expected.twoSpeaker.expectedSpeakerCount));
-  await page.fill("#language", "en");
+  await page.selectOption("#language", "en");
   await page.setInputFiles("#file-input", [
     path.join(fixtures, expected.singleSpeaker.file),
     path.join(fixtures, expected.twoSpeaker.file),
@@ -197,24 +197,29 @@ try {
   }
   await page.click(".job:nth-child(2) .job-edit-toggle"); // Done editing
 
-  // Same file again with the "medium" model, to exercise the model-swap
-  // path in engines/whisper-worker.js (ensureModel only reloads when the
-  // URL actually changes from the default). The model picker lives in the
-  // Settings dialog.
+  // Same file again with Accurate (large-v3-turbo on the CPU), to exercise
+  // the model-swap path in engines/whisper-worker.js (ensureModel only
+  // reloads when the URL actually changes from the default). The model
+  // picker lives in the Settings dialog. It's queued twice and the second
+  // copy removed while it waits, which must leave three jobs.
   await page.click("#settings-open");
   await page.selectOption("#model", "medium");
   await page.click("#settings-dialog .btn");
-  await page.setInputFiles("#file-input", path.join(fixtures, expected.singleSpeaker.file));
+  const singleFile = path.join(fixtures, expected.singleSpeaker.file);
+  await page.setInputFiles("#file-input", [singleFile, singleFile]);
+  await page.click(".job:nth-child(4) .job-remove");
+  const accurateStart = Date.now();
   await waitForJobs(page, 3);
+  console.log(`Accurate (CPU) job took ${((Date.now() - accurateStart) / 1000).toFixed(0)} s, model download included`);
   await assertNoErrors(page);
   const third = await page.$(".job:nth-child(3)");
   assert.match(await third.$eval(".job-status", (e) => e.textContent), /^Done/);
-  const medium = (await third.$eval(".job-transcript", (e) => e.textContent)).toLowerCase();
-  for (const w of expected.singleSpeaker.words) assert.ok(medium.includes(w.toLowerCase()), `medium model: missing "${w}" in: ${medium}`);
-  const mediumJson = JSON.parse((await grab(".export-json", 3)).toString("utf8"));
-  assert.equal(mediumJson.whisper_model, "whisper.cpp ggml-medium-q5_0 (wasm)");
+  const accurate = (await third.$eval(".job-transcript", (e) => e.textContent)).toLowerCase();
+  for (const w of expected.singleSpeaker.words) assert.ok(accurate.includes(w.toLowerCase()), `Accurate model: missing "${w}" in: ${accurate}`);
+  const accurateJson = JSON.parse((await grab(".export-json", 3)).toString("utf8"));
+  assert.equal(accurateJson.whisper_model, "whisper.cpp ggml-large-v3-turbo-q5_0 (wasm)");
 
-  console.log(`PASS (${browserName}): expected words found (small and medium); ${speakers.length} speakers; renamed speaker in exports; CSV/JSON/SRT/DOCX valid`);
+  console.log(`PASS (${browserName}): expected words found (small and large-v3-turbo); ${speakers.length} speakers; renamed speaker in exports; CSV/JSON/SRT/DOCX valid`);
 } catch (err) {
   // Leave enough in the CI log to diagnose without a rerun.
   const html = await context.pages()[0]?.innerHTML("#job-list").catch(() => "(page gone)");

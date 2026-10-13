@@ -32,11 +32,15 @@ async function readDownload(download) {
 }
 
 async function waitForJobs(page, count) {
+  // Log every change, so a failure shows which step it happened in.
+  let last = "";
   const statusLog = setInterval(async () => {
     const s = await page.$$eval(".job", (els) => els.map((e) => `${e.dataset.status}: ${e.querySelector(".job-status").textContent}`)).catch(() => []);
     const banner = await page.textContent("#engine-status").catch(() => "");
-    console.log("[status]", s.join(" | "), "|", banner);
-  }, 10_000);
+    const line = `${s.join(" | ")} | ${banner}`.replace(/\d+%|\d+ of \d+ MB|\d+ MB|\d\d:\d\d so far/g, "#");
+    if (line !== last) console.log("[status]", s.join(" | "), "|", banner);
+    last = line;
+  }, 1_000);
   try {
     await page.waitForFunction(
       (n) => {

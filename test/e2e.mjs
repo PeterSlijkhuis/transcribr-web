@@ -197,7 +197,7 @@ try {
   }
   await page.click(".job:nth-child(2) .job-edit-toggle"); // Done editing
 
-  // Same file again with Accurate (large-v3-turbo on the CPU), to exercise
+  // Same file again with Accurate (medium on the CPU), to exercise
   // the model-swap path in engines/whisper-worker.js (ensureModel only
   // reloads when the URL actually changes from the default). The model
   // picker lives in the Settings dialog. It's queued twice and the second
@@ -217,9 +217,9 @@ try {
   const accurate = (await third.$eval(".job-transcript", (e) => e.textContent)).toLowerCase();
   for (const w of expected.singleSpeaker.words) assert.ok(accurate.includes(w.toLowerCase()), `Accurate model: missing "${w}" in: ${accurate}`);
   const accurateJson = JSON.parse((await grab(".export-json", 3)).toString("utf8"));
-  assert.equal(accurateJson.whisper_model, "whisper.cpp ggml-large-v3-turbo-q5_0 (wasm)");
+  assert.equal(accurateJson.whisper_model, "whisper.cpp ggml-medium-q5_0 (wasm)");
 
-  console.log(`PASS (${browserName}): expected words found (small and large-v3-turbo); ${speakers.length} speakers; renamed speaker in exports; CSV/JSON/SRT/DOCX valid`);
+  console.log(`PASS (${browserName}): expected words found (small and medium); ${speakers.length} speakers; renamed speaker in exports; CSV/JSON/SRT/DOCX valid`);
 } catch (err) {
   // Leave enough in the CI log to diagnose without a rerun.
   const html = await context.pages()[0]?.innerHTML("#job-list").catch(() => "(page gone)");

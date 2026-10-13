@@ -866,9 +866,7 @@ async function processJob(job) {
     const model = selectedModel();
     const onGpu = useGpu(model, job.translate);
     const engine = onGpu ? gpu : whisper;
-    // A tier whose model can't translate names one that can (manifest `translate`).
-    const cpuModel = (job.translate && model.translate) || model;
-    job.model = onGpu ? `${model.onnx} (GPU)` : cpuModel.name;
+    job.model = onGpu ? `${model.onnx} (GPU)` : model.name;
     setStatus(job, "Transcribing");
     // Preparing a model on some GPUs never finishes and never errors. If
     // the GPU worker goes quiet before transcription starts, kill it so the
@@ -896,7 +894,7 @@ async function processJob(job) {
     if (onGpu) arm();
     try {
       return await engine.request(
-        { type: "transcribe", samples, language, translate: job.translate, modelUrl: onGpu ? model.onnx : cpuModel.url, dtype: model.onnxDtype },
+        { type: "transcribe", samples, language, translate: job.translate, modelUrl: onGpu ? model.onnx : model.url, dtype: model.onnxDtype },
         // Keep a copy while on the GPU, in case it fails and the CPU retries.
         onGpu ? [] : [samples.buffer],
         onProgress

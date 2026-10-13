@@ -181,7 +181,10 @@ function showEngineProgress({ label, loaded, total }) {
 
 async function loadManifest() {
   if (!manifest) {
-    const res = await fetch("engines/manifest.json");
+    // Same wording as engines/fetch-cached.js, so the job offers Retry.
+    const res = await fetch("engines/manifest.json").catch(() => {
+      throw new Error("download failed (network error): engines/manifest.json");
+    });
     if (!res.ok) throw new Error(`download failed (HTTP ${res.status}): engines/manifest.json`);
     manifest = await res.json();
     pruneOldEngineCaches(manifest.version);

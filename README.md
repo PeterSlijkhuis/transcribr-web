@@ -16,7 +16,7 @@ No server, no install, no upload. Your audio never leaves your machine.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/transcript-dark.png" />
-  <img src="docs/images/transcript-light.png" alt="A finished transcript with two speakers, one renamed to Interviewer, and CSV/JSON/SRT/DOCX download buttons" width="720" />
+  <img src="docs/images/transcript-light.png" alt="The transcript editor: a document with two speakers, one renamed to Interviewer, a speaker panel, and a player at the bottom" width="720" />
 </picture>
 
 </div>
@@ -63,16 +63,18 @@ and both are remembered in your browser.
 **2. Add your files.** Drag audio or video onto the drop zone, or click to
 choose. Anything your browser can play works (MP3, WAV, M4A, MP4, WebM, ...).
 
-**3. Review and download.** Each file shows live progress, then its
-transcript with a player for the original recording. Click a timestamp to
-hear that line (the line being played is highlighted), and press
-**Ctrl+Space** to play or pause, even while typing. Rename "Speaker 1" to
-"Interviewer", fix a misheard name everywhere with **Replace all**, hit
-**Edit transcript** to correct individual lines, and download in the format
-you need. Edits apply to every export immediately; there is no separate
-save step.
-
-<img src="docs/images/edit.png" alt="Edit mode: each line has a speaker dropdown, editable text, and Split / Merge buttons" width="640" />
+**3. Review and download.** Each file shows live progress, then **Open
+transcript** takes you to a full-page editor: the transcript as one
+document, a player for the original recording at the bottom, and the
+speakers on the side. Click a timestamp to hear that line (the line being
+played is highlighted), and press **Ctrl+Space** to play or pause, even
+while typing. Every line is editable in place, like a word processor:
+**Enter** splits a line, **Backspace** at its start joins it to the one
+above, **Alt+1-9** gives it to another speaker, and **Ctrl+Z** undoes any
+of it. Rename "Speaker 1" to "Interviewer" in the side panel, fix a
+misheard name everywhere with **Find** (Ctrl+F) and **Replace all**, and
+pick a format from **Download**. Edits apply to every export immediately;
+there is no separate save step.
 
 ## Privacy
 
@@ -270,9 +272,9 @@ to auto-detect, or enter a code like `en` or `nl` to force one. Tick
 <summary><strong>The speakers are wrong. What can I do?</strong></summary>
 
 If you know how many people speak, set **Speakers** to that number before
-adding the file; that's the biggest accuracy win. Afterwards, use **Edit
-transcript** to reassign individual lines, or remove a speaker to fold its
-lines into another.
+adding the file; that's the biggest accuracy win. Afterwards, open the
+transcript and pick another speaker on any line (or press Alt+1-9), or
+remove a speaker to fold its lines into another.
 </details>
 
 <details>

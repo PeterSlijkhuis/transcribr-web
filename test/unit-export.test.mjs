@@ -56,3 +56,16 @@ test("buildDocx produces a ZIP that unzip accepts, with escaped text inside", ()
   const doc = execFileSync("unzip", ["-p", file, "word/document.xml"]).toString();
   assert.match(doc, /she said &quot;hi&quot; &amp; &lt;left&gt;/);
 });
+
+test("buildDocx groups a speaker's lines into one turn unless perLine", () => {
+  const same = [rows[0], { ...rows[0], timestamp_start: 1.5, timestamp_end: 2, transcribed_text: "again" }];
+  const doc = (perLine) => {
+    const dir = mkdtempSync(path.join(tmpdir(), "docx-"));
+    const file = path.join(dir, "t.docx");
+    writeFileSync(file, buildDocx("Test", same, perLine));
+    return execFileSync("unzip", ["-p", file, "word/document.xml"]).toString();
+  };
+  assert.equal(doc(false).match(/Speaker 1 \[/g).length, 1);
+  assert.equal(doc(true).match(/Speaker 1 \[/g).length, 2);
+  assert.match(doc(true), /Speaker 1 \[00:01–00:02\]/);
+});

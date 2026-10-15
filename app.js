@@ -2,8 +2,9 @@
 // engine coordination, the transcript editor and its downloads.
 //
 // Each engine runs in its own worker (engines/whisper-worker.js,
-// engines/sherpa-worker.js). Jobs run one at a time: decode here, diarize
-// in the sherpa worker, transcribe in the whisper worker, merge here.
+// engines/sherpa-worker.js). Jobs run one at a time: decode here, then
+// diarize in the sherpa worker while transcribing in the whisper worker,
+// merge here.
 import { assignSpeakers } from "./merge.js";
 import { speakerCount, fmtClock, renameSpeakers } from "./shared.js";
 import { downloadCsv } from "./export/csv.js";
@@ -438,7 +439,7 @@ function exportMenu(job, summaryClass) {
   const baseName = job.name.replace(/\.[^.]+$/, "");
   const rows = () => renameSpeakers(job.rows, job.names);
   const actions = {
-    docx: () => downloadDocx(baseName, rows(), `${baseName}_transcript.docx`),
+    docx: () => downloadDocx(baseName, rows(), `${baseName}_transcript.docx`, editorLayout.value === "lines"),
     srt: () => downloadSrt(rows(), `${baseName}_transcript.srt`),
     csv: () => downloadCsv(rows(), `${baseName}_transcript.csv`),
     json: () => downloadJson(job.name, job.durationSec, rows(), { model: job.model, translated: job.translate }, `${baseName}_transcript.json`),
@@ -474,6 +475,12 @@ const editorSpeakers = document.getElementById("editor-speakers");
 const editorTranscript = document.getElementById("editor-transcript");
 const editorAudio = document.getElementById("editor-audio");
 const editorSpeed = document.getElementById("editor-speed");
+const editorLayout = document.getElementById("editor-layout");
+editorLayout.value = savedSetting("layout") === "lines" ? "lines" : "turns";
+editorLayout.addEventListener("change", () => {
+  try { localStorage.setItem("layout", editorLayout.value); } catch (e) {}
+  if (current) render(current);
+});
 const undoBtn = document.getElementById("undo");
 const findToggle = document.getElementById("find-toggle");
 const findBar = document.getElementById("find-bar");
@@ -741,7 +748,7 @@ function renderTranscript(job) {
   job.rows.forEach((row, i) => {
     const seg = document.createElement("div");
     seg.className = "seg";
-    if (i > 0 && job.rows[i - 1].speaker_id === row.speaker_id) seg.classList.add("cont");
+    if (editorLayout.value === "turns" && i > 0 && job.rows[i - 1].speaker_id === row.speaker_id) seg.classList.add("cont");
     seg.style.setProperty("--hue", speakerHue(ids.indexOf(row.speaker_id)));
     seg.dataset.start = row.timestamp_start;
     seg.dataset.end = row.timestamp_end;
@@ -964,13 +971,11 @@ async function processJob(job) {
   await ensureEngines(job);
   if (job.cancelled) return;
 
-  // sherpa-onnx's diarization call has no progress signal of its own;
-  // estimate against a rough multiple of the audio's own length.
-  startEstimatedProgress(job, "Detecting speakers", Math.max(1500, durationSec * 400));
-  // Posted as a copy: the same samples go to whisper next.
-  const diar = await sherpa.request({ type: "diarize", samples, numSpeakers });
-  stopEstimatedProgress(job);
-  const dsegs = diar.segments.map((s) => ({ s: s.start, e: s.end, spk: s.speaker }));
+  // Speaker detection runs alongside transcription: neither needs the
+  // other's output, and whisper leaves one core free (or runs on the GPU).
+  // Posted as a copy, before whisper takes the samples.
+  const diarizing = sherpa.request({ type: "diarize", samples, numSpeakers });
+  diarizing.catch(() => {}); // awaited below; don't report it as unhandled meanwhile
 
   const transcribe = async () => {
     const model = selectedModel();
@@ -998,8 +1003,8 @@ async function processJob(job) {
         setStatus(job, "Transcribing", p.fraction);
       }
     };
-    // Settings can change while speakers are being detected, so this engine
-    // may not be the one ensureEngines loaded. load() is a no-op if it is.
+    // Settings can change after ensureEngines, so this engine may not be
+    // the one it loaded. load() is a no-op if it is.
     await engine.load(manifest, onProgress);
     if (onGpu) arm();
     try {
@@ -1015,16 +1020,33 @@ async function processJob(job) {
   };
   let tr;
   try {
-    tr = await transcribe();
+    try {
+      tr = await transcribe();
+    } catch (err) {
+      // A GPU that loaded but can't run the model (out of graphics memory,
+      // a driver bug): finish this file on the CPU and stay there.
+      if (job.cancelled || !job.model.endsWith("(GPU)") || engineSelect.value === "gpu") throw err;
+      console.warn("GPU transcription failed, retrying on the CPU:", err);
+      gpuFailed = true;
+      updateModelHint();
+      tr = await transcribe();
+    }
   } catch (err) {
-    // A GPU that loaded but can't run the model (out of graphics memory,
-    // a driver bug): finish this file on the CPU and stay there.
-    if (job.cancelled || !job.model.endsWith("(GPU)") || engineSelect.value === "gpu") throw err;
-    console.warn("GPU transcription failed, retrying on the CPU:", err);
-    gpuFailed = true;
-    updateModelHint();
-    tr = await transcribe();
+    // Let the diarization worker finish before the next file uses it.
+    await diarizing.catch(() => {});
+    throw err;
   }
+
+  // sherpa-onnx's diarization call has no progress signal of its own; if it
+  // is still going, estimate against a rough multiple of the audio's length.
+  startEstimatedProgress(job, "Detecting speakers", Math.max(1500, durationSec * 400));
+  let diar;
+  try {
+    diar = await diarizing;
+  } finally {
+    stopEstimatedProgress(job);
+  }
+  const dsegs = diar.segments.map((s) => ({ s: s.start, e: s.end, spk: s.speaker }));
 
   job.rows = assignSpeakers(tr.segments, dsegs);
   finishJob(job);

@@ -113,6 +113,12 @@
       <div class="editor-tools">
         <button type="button" id="find-toggle" class="btn btn-sm btn-ghost" aria-expanded="false" aria-controls="find-bar" title="Find &amp; replace (Ctrl+F)">Find</button>
         <button type="button" id="undo" class="btn btn-sm btn-ghost" title="Undo (Ctrl+Z)" disabled>Undo</button>
+        <label class="speed lines-pick" title="Group lines into speaker turns, or give every sentence its own speaker and time (also used for the Word download)">Lines
+          <select id="editor-layout">
+            <option value="turns">Per speaker</option>
+            <option value="lines">Per sentence</option>
+          </select>
+        </label>
         <span id="editor-export"></span>
       </div>
     </header>

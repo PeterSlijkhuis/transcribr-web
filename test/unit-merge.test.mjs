@@ -70,3 +70,24 @@ test("assignSpeakers numbers speakers by first appearance, whatever the cluster 
   );
   assert.deepEqual(rows.map((r) => r.speaker_id), ["Speaker 1", "Speaker 2", "Speaker 1"]);
 });
+
+test("splitAtBoundaries snaps a cut to the nearest sentence end", () => {
+  // Time alone would cut after "you" (word 3 of 8); the sentence ends one word later.
+  const w = { t0: 0, t1: 4, text: "how are you today? fine thanks, and you" };
+  const dsegs = [
+    { s: 0, e: 1.4, spk: 0 },
+    { s: 1.6, e: 4, spk: 1 },
+  ];
+  assert.deepEqual(splitAtBoundaries(dsegs, w).map((p) => p.text), ["how are you today?", "fine thanks, and you"]);
+});
+
+test("splitAtBoundaries falls back to a comma, then to the time estimate", () => {
+  const dsegs = [
+    { s: 0, e: 1.9, spk: 0 },
+    { s: 2.1, e: 4, spk: 1 },
+  ];
+  const comma = { t0: 0, t1: 4, text: "well I think, that we should go" };
+  assert.deepEqual(splitAtBoundaries(dsegs, comma).map((p) => p.text), ["well I think,", "that we should go"]);
+  const bare = { t0: 0, t1: 4, text: "one two three four" };
+  assert.deepEqual(splitAtBoundaries(dsegs, bare).map((p) => p.text), ["one two", "three four"]);
+});

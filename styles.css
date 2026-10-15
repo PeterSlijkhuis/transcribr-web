@@ -1068,6 +1068,9 @@ input[type="checkbox"] {
   .speed {
     display: none; /* the player's own menu has speed on phones */
   }
+  .speed.lines-pick {
+    display: flex;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

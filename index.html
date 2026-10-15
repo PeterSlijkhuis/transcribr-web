@@ -101,6 +101,62 @@
     </div>
   </section>
 
+  <!-- The transcript editor: a full-page view over the file list (Back or
+       Esc returns to it). One document per file, always editable. -->
+  <dialog id="editor" class="editor" aria-labelledby="editor-name">
+    <header class="editor-bar">
+      <button type="button" class="btn btn-sm btn-ghost editor-back" title="Back to your files (Esc)">&#8592; Files</button>
+      <div class="editor-title">
+        <h2 id="editor-name"></h2>
+        <p id="editor-meta"></p>
+      </div>
+      <div class="editor-tools">
+        <button type="button" id="find-toggle" class="btn btn-sm btn-ghost" aria-expanded="false" aria-controls="find-bar" title="Find &amp; replace (Ctrl+F)">Find</button>
+        <button type="button" id="undo" class="btn btn-sm btn-ghost" title="Undo (Ctrl+Z)" disabled>Undo</button>
+        <span id="editor-export"></span>
+      </div>
+    </header>
+    <div id="find-bar" class="find-bar" hidden>
+      <input type="search" id="find-text" placeholder="Find" aria-label="Find" title="Enter jumps to the next line" />
+      <input type="text" id="replace-text" placeholder="Replace with" aria-label="Replace with" />
+      <button type="button" id="replace-all" class="btn btn-sm btn-ghost">Replace all</button>
+      <span id="find-count" aria-live="polite"></span>
+    </div>
+    <div class="editor-body">
+      <aside class="editor-side">
+        <h3>Speakers</h3>
+        <ul id="editor-speakers"></ul>
+        <button type="button" id="add-speaker" class="btn btn-sm btn-ghost">+ Add speaker</button>
+        <details class="shortcuts">
+          <summary>Keyboard shortcuts</summary>
+          <dl>
+            <dt>Ctrl+Space</dt><dd>Play / pause</dd>
+            <dt>Enter</dt><dd>Split the line at the cursor</dd>
+            <dt>Backspace</dt><dd>At the start of a line: join it to the one above</dd>
+            <dt>Alt+1-9</dt><dd>Give the line to speaker 1-9</dd>
+            <dt>Ctrl+Z</dt><dd>Undo</dd>
+            <dt>Ctrl+F</dt><dd>Find &amp; replace</dd>
+          </dl>
+        </details>
+      </aside>
+      <main class="editor-scroll">
+        <article id="editor-transcript" class="page"></article>
+      </main>
+    </div>
+    <footer class="editor-player">
+      <audio id="editor-audio" controls preload="metadata"></audio>
+      <label class="speed">Speed
+        <select id="editor-speed">
+          <option value="0.75">0.75x</option>
+          <option value="1" selected>1x</option>
+          <option value="1.25">1.25x</option>
+          <option value="1.5">1.5x</option>
+          <option value="2">2x</option>
+        </select>
+      </label>
+    </footer>
+  </dialog>
+
   <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title">
     <form method="dialog">
       <h2 id="settings-title">Settings</h2>

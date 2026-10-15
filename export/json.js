@@ -4,10 +4,12 @@ import { toTurns, speakerCount } from "../shared.js";
 
 /// meta: {model, translated} describing how the transcript was produced.
 export function toJsonString(sourceFileName, durationSec, rows, meta = {}) {
+  const model = meta.model || "ggml-base";
   const payload = {
     source_file: sourceFileName,
     duration_sec: durationSec,
-    whisper_model: `whisper.cpp ${meta.model || "ggml-base"} (wasm)`,
+    // GPU jobs name the ONNX repo, e.g. "onnx-community/whisper-small (GPU)".
+    whisper_model: model.endsWith("(GPU)") ? `Transformers.js ${model}` : `whisper.cpp ${model} (wasm)`,
     translated_to_english: Boolean(meta.translated),
     diarization: "sherpa-onnx (pyannote segmentation-3.0 + TitaNet embedding)",
     generated_at: new Date().toISOString(),

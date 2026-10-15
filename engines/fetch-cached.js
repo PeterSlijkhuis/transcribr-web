@@ -11,6 +11,13 @@ var transcribrFetchCached = (function () {
   // Keep in sync with ENGINE_CACHE_PREFIX in app.js, which prunes old versions.
   const CACHE_PREFIX = "transcribr-web-engines-";
 
+  // Firefox refuses to importScripts() a blob whose type isn't JavaScript
+  // ("A network error occurred."), and neither the download nor the Cache
+  // API entry keeps one.
+  function typed(blob, url) {
+    return /\.js$/.test(url) ? new Blob([blob], { type: "text/javascript" }) : blob;
+  }
+
   // onProgress(loadedBytes, totalBytes) fires while downloading; totalBytes
   // is 0 when the server sends no Content-Length.
   async function fetchCachedBlob(url, cacheVersion, onProgress) {
@@ -18,7 +25,7 @@ var transcribrFetchCached = (function () {
     try {
       cache = await caches.open(CACHE_PREFIX + cacheVersion);
       const hit = await cache.match(url);
-      if (hit) return await hit.blob();
+      if (hit) return typed(await hit.blob(), url);
     } catch (e) {
       cache = null; // Cache API unavailable (private mode etc.) -- just download.
     }
@@ -55,7 +62,7 @@ var transcribrFetchCached = (function () {
         // Storage quota exceeded: still usable this session, just not cached.
       }
     }
-    return blob;
+    return typed(blob, url);
   }
 
   return { fetchCachedBlob };

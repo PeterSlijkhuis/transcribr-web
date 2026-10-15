@@ -14,6 +14,12 @@ import { mountFlappyGame } from "./flappy.js";
 
 const SAMPLE_RATE = 16000; // both engines take 16kHz mono
 const LONG_RECORDING_WARN_SEC = 60 * 60; // soft warning threshold, see spec
+// whisper.cpp's language codes (g_lang in its src/whisper.cpp). Any other
+// code makes it log "unknown language" and return no text at all, so the
+// language is picked from this list rather than typed.
+const LANGUAGES = (
+  "en zh de es ru ko fr ja pt tr pl ca nl ar sv it id hi fi vi he uk el ms cs ro da hu ta no th ur hr bg lt la mi ml cy sk te fa lv bn sr az sl kn et mk br eu is hy ne mn bs kk sq sw gl mr pa si km sn yo so af oc ka be tg sd gu am yi lo uz fo ht ps tk nn mt sa lb my bo tl mg as tt haw ln ha ba jw su yue"
+).split(" ");
 
 const compatBanner = document.getElementById("compat-banner");
 const engineBanner = document.getElementById("engine-banner");
@@ -29,6 +35,20 @@ const modelHint = document.getElementById("model-hint");
 const engineSelect = document.getElementById("engine");
 const engineHint = document.getElementById("engine-hint");
 const translateInput = document.getElementById("translate");
+
+// Language names in the visitor's own language, sorted; the code is the
+// fallback where the browser has no name for it. whisper.cpp says "jw" for
+// Javanese, whose standard code is "jv".
+{
+  let names = null;
+  try { names = new Intl.DisplayNames([navigator.language, "en"], { type: "language" }); } catch (e) {}
+  const nameOf = (code) => {
+    try { return (names && names.of(code === "jw" ? "jv" : code)) || code; } catch (e) { return code; }
+  };
+  LANGUAGES.map((code) => [code, nameOf(code)])
+    .sort((a, b) => a[1].localeCompare(b[1]))
+    .forEach(([code, name]) => languageInput.add(new Option(name, code)));
+}
 
 // ---- Compatibility -------------------------------------------------------
 
@@ -54,7 +74,7 @@ function checkCompat() {
     simd = WebAssembly.validate(SIMD_PROBE);
   } catch (e) {}
   if (!simd) {
-    showCompatError("This browser can't run transcribr-web (no WebAssembly SIMD). Use a current desktop Chrome or Edge.");
+    showCompatError("This browser can't run transcribr-web (no WebAssembly SIMD). Use a current desktop Chrome, Edge, Firefox or Safari.");
     disablePicker("Unsupported browser, see the message above.");
     return false;
   }
@@ -65,14 +85,11 @@ function checkCompat() {
     setTimeout(() => {
       showCompatError(
         "This browser can't run transcribr-web (no cross-origin isolation / SharedArrayBuffer). " +
-          "Use desktop Chrome or Edge, and make sure the page isn't opened from a file:// path."
+          "Use a current desktop Chrome, Edge, Firefox or Safari, and make sure the page isn't opened from a file:// path."
       );
       disablePicker("Unsupported browser, see the message above.");
     }, 5000);
     return false;
-  }
-  if (!/Chrome|Edg\//.test(navigator.userAgent)) {
-    showCompatError("transcribr-web is tested on desktop Chrome and Edge. It may not work correctly in this browser.");
   }
   return true;
 }
@@ -176,7 +193,10 @@ function showEngineProgress({ label, loaded, total }) {
 
 async function loadManifest() {
   if (!manifest) {
-    const res = await fetch("engines/manifest.json");
+    // Same wording as engines/fetch-cached.js, so the job offers Retry.
+    const res = await fetch("engines/manifest.json").catch(() => {
+      throw new Error("download failed (network error): engines/manifest.json");
+    });
     if (!res.ok) throw new Error(`download failed (HTTP ${res.status}): engines/manifest.json`);
     manifest = await res.json();
     pruneOldEngineCaches(manifest.version);
@@ -223,10 +243,10 @@ function selectedModel() {
 
 // The GPU engine only covers tiers with an ONNX export (manifest `onnx`);
 // anything else stays on whisper.cpp.
-function useGpu(model) {
+function useGpu(model, translate = translateInput.checked) {
   // large-v3-turbo was trained without translation data, so a tier marked
   // onnxNoTranslate goes to the CPU model when Translate is on.
-  return engineSelect.value !== "cpu" && gpuAvailable() && Boolean(model.onnx) && !(translateInput.checked && model.onnxNoTranslate);
+  return engineSelect.value !== "cpu" && gpuAvailable() && Boolean(model.onnx) && !(translate && model.onnxNoTranslate);
 }
 
 function asrEngine() {
@@ -324,6 +344,7 @@ async function ensureEngines(job) {
   } catch (err) {
     engineStatus.textContent = "Loading the engines failed: " + err.message;
     engineProgress.hidden = true;
+    if (job && job.cancelled) engineBanner.hidden = true;
     throw err;
   }
   engineBanner.hidden = true;
@@ -411,8 +432,8 @@ function allSpeakerIds(job) {
 function addSpeaker(job) {
   const used = allSpeakerIds(job);
   let n = used.length + 1;
-  while (used.includes(`speaker_${n}`)) n++;
-  job.extraSpeakers.push(`speaker_${n}`);
+  while (used.includes(`Speaker ${n}`)) n++;
+  job.extraSpeakers.push(`Speaker ${n}`);
   renderSpeakerNames(job);
   renderTranscript(job);
 }
@@ -794,17 +815,17 @@ function askLongRecording(job) {
     `;
     job.el.appendChild(warn);
     warn.querySelector(".proceed").onclick = () => { warn.remove(); resolve(true); };
-    warn.querySelector(".skip").onclick = () => { warn.remove(); resolve(false); };
+    warn.querySelector(".skip").onclick = job.skipLong = () => { warn.remove(); resolve(false); };
   });
 }
 
 async function processJob(job) {
   job.status = "processing";
   job.el.dataset.status = "processing";
-  const language = languageInput.value.trim().toLowerCase() || "auto";
-  if (!/^(auto|[a-z]{2,3})$/.test(language)) {
-    throw new Error(`"${languageInput.value}" is not a language code; use a code like en or nl, or leave it blank`);
-  }
+  // File options are read once, here, so a file uses what was set when it started.
+  const language = languageInput.value || "auto";
+  const numSpeakers = Math.min(20, Math.max(0, parseInt(numSpeakersInput.value, 10) || 0));
+  job.translate = translateInput.checked;
 
   startEstimatedProgress(job, "Decoding audio", 1500);
   let decoded;
@@ -815,6 +836,7 @@ async function processJob(job) {
     throw new Error("could not decode this file: " + ((err && err.message) || err));
   }
   stopEstimatedProgress(job);
+  if (job.cancelled) return;
   const { samples, durationSec } = decoded;
   job.durationSec = durationSec;
   if (durationSec > LONG_RECORDING_WARN_SEC && !job.longOk) {
@@ -830,20 +852,20 @@ async function processJob(job) {
 
   setStatus(job, "Loading engines");
   await ensureEngines(job);
+  if (job.cancelled) return;
 
   // sherpa-onnx's diarization call has no progress signal of its own;
   // estimate against a rough multiple of the audio's own length.
   startEstimatedProgress(job, "Detecting speakers", Math.max(1500, durationSec * 400));
-  const numSpeakers = Math.max(0, parseInt(numSpeakersInput.value, 10) || 0);
   // Posted as a copy: the same samples go to whisper next.
   const diar = await sherpa.request({ type: "diarize", samples, numSpeakers });
   stopEstimatedProgress(job);
   const dsegs = diar.segments.map((s) => ({ s: s.start, e: s.end, spk: s.speaker }));
 
-  job.translate = translateInput.checked;
   const transcribe = async () => {
     const model = selectedModel();
-    const onGpu = useGpu(model);
+    const onGpu = useGpu(model, job.translate);
+    const engine = onGpu ? gpu : whisper;
     job.model = onGpu ? `${model.onnx} (GPU)` : model.name;
     setStatus(job, "Transcribing");
     // Preparing a model on some GPUs never finishes and never errors. If
@@ -854,24 +876,28 @@ async function processJob(job) {
       clearTimeout(watchdog);
       watchdog = setTimeout(() => gpu.crash(new Error("the graphics card stopped responding while preparing the model")), GPU_QUIET_LIMIT_MS);
     };
+    const onProgress = (p) => {
+      if (onGpu) p.started ? clearTimeout(watchdog) : arm();
+      if (p.label) {
+        setStatus(job, `Downloading ${p.label}`, p.total ? p.loaded / p.total : undefined);
+      } else if (p.preparing) {
+        setStatus(job, "Preparing the model on the graphics card");
+      } else if (p.started) {
+        setStatus(job, "Transcribing");
+      } else {
+        setStatus(job, "Transcribing", p.fraction);
+      }
+    };
+    // Settings can change while speakers are being detected, so this engine
+    // may not be the one ensureEngines loaded. load() is a no-op if it is.
+    await engine.load(manifest, onProgress);
     if (onGpu) arm();
     try {
-      return await (onGpu ? gpu : whisper).request(
+      return await engine.request(
         { type: "transcribe", samples, language, translate: job.translate, modelUrl: onGpu ? model.onnx : model.url, dtype: model.onnxDtype },
         // Keep a copy while on the GPU, in case it fails and the CPU retries.
         onGpu ? [] : [samples.buffer],
-        (p) => {
-          if (onGpu) p.started ? clearTimeout(watchdog) : arm();
-          if (p.label) {
-            setStatus(job, `Downloading ${p.label}`, p.total ? p.loaded / p.total : undefined);
-          } else if (p.preparing) {
-            setStatus(job, "Preparing the model on the graphics card");
-          } else if (p.started) {
-            setStatus(job, "Transcribing");
-          } else {
-            setStatus(job, "Transcribing", p.fraction);
-          }
-        }
+        onProgress
       );
     } finally {
       clearTimeout(watchdog);
@@ -883,11 +909,10 @@ async function processJob(job) {
   } catch (err) {
     // A GPU that loaded but can't run the model (out of graphics memory,
     // a driver bug): finish this file on the CPU and stay there.
-    if (!job.model.endsWith("(GPU)") || engineSelect.value === "gpu") throw err;
+    if (job.cancelled || !job.model.endsWith("(GPU)") || engineSelect.value === "gpu") throw err;
     console.warn("GPU transcription failed, retrying on the CPU:", err);
     gpuFailed = true;
     updateModelHint();
-    await whisper.load(manifest, (p) => setStatus(job, `Downloading ${p.label}`, p.total ? p.loaded / p.total : undefined));
     tr = await transcribe();
   }
 
@@ -903,7 +928,7 @@ async function runQueue() {
     try {
       await processJob(job);
     } catch (err) {
-      failJob(job, String((err && err.message) || err));
+      if (!job.cancelled) failJob(job, String((err && err.message) || err));
     }
   }
   running = false;
@@ -917,10 +942,28 @@ function enqueue(job) {
   runQueue();
 }
 
+// Removing a running file stops it: a worker can't be interrupted mid-call,
+// so the engines are thrown away and the next file reloads them (from the
+// cache, so in seconds).
+function removeJob(job) {
+  const i = queue.indexOf(job);
+  if (i >= 0) queue.splice(i, 1);
+  if (job.status === "processing") {
+    job.cancelled = true;
+    if (job.skipLong) job.skipLong();
+    for (const engine of [sherpa, whisper, gpu]) engine.crash(new Error("cancelled"));
+  }
+  stopEstimatedProgress(job);
+  const audio = job.el.querySelector(".job-audio");
+  if (audio.src) URL.revokeObjectURL(audio.src);
+  job.el.remove();
+}
+
 function addJob(file) {
   const li = document.createElement("li");
   li.className = "job";
   li.innerHTML = `
+    <button type="button" class="btn btn-sm btn-ghost job-remove">Remove</button>
     <div class="job-name"></div>
     <div class="job-status"></div>
     <progress class="job-progress" max="1" value="0" hidden></progress>
@@ -953,6 +996,8 @@ function addJob(file) {
   li.querySelector(".job-name").textContent = file.name;
   jobList.appendChild(li);
   const job = { name: file.name, file, el: li, rows: [], names: {}, extraSpeakers: [], durationSec: 0, editing: false };
+  li.querySelector(".job-remove").setAttribute("aria-label", `Remove ${file.name}`);
+  li.querySelector(".job-remove").onclick = () => removeJob(job);
   enqueue(job);
 }
 

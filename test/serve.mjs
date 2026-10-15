@@ -1,6 +1,8 @@
 // test/serve.mjs -- static server for local runs and the e2e check. Sends
 // the COOP/COEP headers GitHub Pages can't (coi-serviceworker.js supplies
 // them there). Usage: node test/serve.mjs [port]
+// PAGES=1 leaves those headers off, like GitHub Pages, so the service worker
+// has to do its job.
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -28,8 +30,7 @@ export function startServer(port) {
       const body = await readFile(filePath);
       res.writeHead(200, {
         "Content-Type": contentTypes[path.extname(filePath)] || "application/octet-stream",
-        "Cross-Origin-Opener-Policy": "same-origin",
-        "Cross-Origin-Embedder-Policy": "require-corp",
+        ...(process.env.PAGES ? {} : { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "require-corp" }),
       });
       res.end(body);
     } catch {

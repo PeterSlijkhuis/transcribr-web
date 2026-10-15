@@ -10,7 +10,7 @@ No server, no install, no upload. Your audio never leaves your machine.
 
 ### [→ Try it live](https://peterslijkhuis.github.io/transcribr-web/)
 
-<sub>Desktop Chrome or Edge</sub>
+<sub>Desktop Chrome, Edge, Firefox or Safari</sub>
 
 <br />
 
@@ -135,11 +135,12 @@ on your CPU, so that cost is your wait time.
 - **Standard is `small`, not `base`.** The app used `base` early on;
   `small` is clearly more accurate and still runs around real-time on a
   normal laptop, so it became the default.
-- **No `large` tier (yet).** `large-v3` has about 1.5 B parameters, twice
-  `medium`. On a CPU in WebAssembly it would be far slower than real-time
-  for most people, and it pushes against the 4 GB memory the engine can
-  address. The faster `large-v3-turbo` is a plausible future tier but
-  hasn't been tested here.
+- **No `large` tier on the processor.** `large-v3` has about 1.5 B
+  parameters, twice `medium`. `large-v3-turbo` (5-bit, 574 MB) does run on
+  the processor in Chromium, Firefox and WebKit, but in CI it took about 3x
+  as long as `medium` on the same 12-second file (430 s against 122 s in
+  Chromium, 2026-10-13), so Accurate keeps `medium` there. On a graphics
+  card Accurate is `large-v3-turbo`.
 - **Models come straight from the source.** All three are the official
   whisper.cpp conversions on Hugging Face
   ([`ggerganov/whisper.cpp`](https://huggingface.co/ggerganov/whisper.cpp)),
@@ -198,10 +199,11 @@ translate, so with Translate to English on, Accurate uses the processor.
 <details>
 <summary><strong>Which browsers work?</strong></summary>
 
-Current desktop **Chrome** and **Edge**. The engines need WebAssembly SIMD
-and `SharedArrayBuffer` (cross-origin isolation); the page checks both on
-load and tells you if your browser falls short. Firefox and Safari may work
-but aren't tested. Phones and tablets usually don't have the memory.
+Current desktop **Chrome**, **Edge**, **Firefox** and **Safari**. CI runs the
+full end-to-end check, with the real engines, in Chromium, Firefox and WebKit
+(Safari's engine). The engines need WebAssembly SIMD and `SharedArrayBuffer`
+(cross-origin isolation); the page checks both on load and tells you if your
+browser falls short. Phones and tablets usually don't have the memory.
 </details>
 
 <details>

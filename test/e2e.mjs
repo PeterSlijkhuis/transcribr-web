@@ -55,6 +55,19 @@ async function waitForJobs(page, count) {
   }
 }
 
+// The transcript editor is a full-page view opened from a file's card.
+async function openEditor(page, nth) {
+  await page.click(`.job:nth-child(${nth}) .job-open`);
+  await page.waitForSelector("#editor[open] .seg");
+}
+
+async function closeEditor(page) {
+  await page.click("#editor .editor-back");
+  await page.waitForFunction(() => !document.getElementById("editor").open);
+}
+
+const editorText = (page) => page.$$eval("#editor .seg-text", (els) => els.map((e) => e.value).join(" "));
+
 async function assertNoErrors(page) {
   const errors = await page.$$eval(".job-error", (els) => els.map((e) => e.textContent).filter(Boolean));
   assert.deepEqual(errors, [], "jobs failed");
@@ -103,29 +116,28 @@ try {
   const jobs = await page.$$(".job");
   await assertNoErrors(page);
 
-  // single-speaker.wav: expected words present, one speaker.
-  const single = (await jobs[0].$eval(".job-transcript", (e) => e.textContent)).toLowerCase();
+  // single-speaker.wav: expected words present.
+  await openEditor(page, 1);
+  const single = (await editorText(page)).toLowerCase();
   for (const w of expected.singleSpeaker.words) assert.ok(single.includes(w.toLowerCase()), `missing "${w}" in: ${single}`);
+  await closeEditor(page);
 
-  // two-speaker.wav: expected speaker count.
-  const speakers = await jobs[1].$$eval(".turn-speaker", (els) => [...new Set(els.map((e) => e.textContent))]);
+  // two-speaker.wav: expected speaker count, from the editor's speaker list.
+  await openEditor(page, 2);
+  const speakers = await page.$$eval("#editor-speakers input", (els) => els.map((e) => e.dataset.speaker));
   assert.equal(speakers.length, expected.twoSpeaker.expectedSpeakerCount, `speakers: ${speakers.join(", ")}`);
-
-  // Only one job's result panel is expanded at a time; open job 2's before
-  // interacting with anything inside it.
-  await page.click(".job:nth-child(2) .job-view-toggle");
-  assert.equal(await page.getAttribute(".job:nth-child(2) .job-result", "data-collapsed"), null, "job 2's result did not open");
 
   // Rename the first listed speaker (labels depend on diarization's cluster
   // ids, so don't assume which exist); the exports below must carry it.
-  const renameInput = page.locator(".job:nth-child(2) .job-speakers input").first();
+  const renameInput = page.locator("#editor-speakers input").first();
   const renamedFrom = await renameInput.getAttribute("data-speaker");
   console.log("speakers:", speakers.join(", "), "| renaming", renamedFrom);
   await renameInput.fill("Interviewer");
 
-  // Exports, from the two-speaker job.
-  const grab = async (cls, nth = 2) => {
-    const [download] = await Promise.all([page.waitForEvent("download"), page.click(`.job:nth-child(${nth}) ${cls}`)]);
+  // Exports, from the editor's Download menu.
+  const grab = async (cls) => {
+    await page.click("#editor .menu summary");
+    const [download] = await Promise.all([page.waitForEvent("download"), page.click(`#editor ${cls}`)]);
     return readDownload(download);
   };
   const csv = (await grab(".export-csv")).toString("utf8");
@@ -140,62 +152,77 @@ try {
   assert.equal(docx.subarray(0, 2).toString("latin1"), "PK");
   assert.ok(docx.includes(Buffer.from("word/document.xml")), "DOCX lacks word/document.xml");
 
-  // Edit transcript: reassign the first row's speaker (this is how a user
-  // "merges" a sentence into a neighboring turn) and tweak its text; both
+  // The file card's own Download menu works too.
+  await closeEditor(page);
+  await page.click(".job:nth-child(2) .menu summary");
+  const [cardDownload] = await Promise.all([page.waitForEvent("download"), page.click(".job:nth-child(2) .export-csv")]);
+  assert.match((await readDownload(cardDownload)).toString("utf8"), /\nInterviewer,/, "card download lacks the rename");
+  await openEditor(page, 2);
+
+  // Editing: reassign the first line's speaker and tweak its text; both
   // must show up in a re-export without re-processing the file.
-  await page.click(".job:nth-child(2) .job-edit-toggle");
-  const editRows = page.locator(".job:nth-child(2) .edit-row");
-  assert.ok((await editRows.count()) > 0, "no editable rows rendered");
-  const firstSelect = editRows.first().locator(".edit-row-speaker");
+  const segs = page.locator("#editor .seg");
+  assert.ok((await segs.count()) > 0, "no editable lines rendered");
+  const firstSelect = segs.first().locator(".seg-speaker");
   assert.equal(await firstSelect.locator("option").count(), speakers.length, "speaker select option count");
   const secondOption = firstSelect.locator("option").nth(1);
   const targetValue = await secondOption.getAttribute("value");
   const targetLabel = await secondOption.textContent();
   await firstSelect.selectOption(targetValue);
-  const firstText = editRows.first().locator(".edit-row-text");
+  const firstText = segs.first().locator(".seg-text");
   await firstText.fill((await firstText.inputValue()) + " EDITEDMARK");
-  await page.click(".job:nth-child(2) .job-edit-toggle"); // Done editing
 
   const editedCsv = (await grab(".export-csv")).toString("utf8");
   const editedLine = editedCsv.split("\n").find((l) => l.includes("EDITEDMARK"));
-  assert.ok(editedLine, "edited row missing from re-exported CSV");
-  assert.ok(editedLine.startsWith(`${targetLabel},`), `edited row not reassigned to "${targetLabel}": ${editedLine}`);
+  assert.ok(editedLine, "edited line missing from re-exported CSV");
+  assert.ok(editedLine.startsWith(`${targetLabel},`), `edited line not reassigned to "${targetLabel}": ${editedLine}`);
 
-  // Speaker add/remove and row merge/split, back in edit mode. Read the
-  // current speaker count fresh rather than reusing `speakers` from
-  // earlier: the reassignment above may have consolidated every row onto
-  // one speaker if the fixture only had one row per original speaker.
-  await page.click(".job:nth-child(2) .job-edit-toggle");
-  const speakerChips = page.locator(".job:nth-child(2) .job-speakers label");
-  const chipsBefore = await speakerChips.count();
-  const rowOptionsBefore = await editRows.first().locator(".edit-row-speaker option").count();
-  await page.locator(".job:nth-child(2) .job-speakers button", { hasText: "Add speaker" }).click();
-  assert.equal(await speakerChips.count(), chipsBefore + 1, "add speaker did not add a chip");
-  assert.equal(
-    await editRows.first().locator(".edit-row-speaker option").count(),
-    rowOptionsBefore + 1,
-    "new speaker missing from a row's speaker picker"
-  );
-  // It has no rows yet, so removing it again should just drop the chip.
-  await page.locator(".job:nth-child(2) .job-speakers .speaker-remove").last().click();
-  assert.equal(await speakerChips.count(), chipsBefore, "remove speaker did not remove the chip");
+  // Speaker add/remove. Read the current count fresh: the reassignment
+  // above may have folded every line onto one speaker.
+  const speakerItems = page.locator("#editor-speakers li");
+  const itemsBefore = await speakerItems.count();
+  const optionsBefore = await segs.first().locator(".seg-speaker option").count();
+  await page.click("#add-speaker");
+  assert.equal(await speakerItems.count(), itemsBefore + 1, "add speaker did not add an entry");
+  assert.equal(await segs.first().locator(".seg-speaker option").count(), optionsBefore + 1, "new speaker missing from a line's speaker picker");
+  // It has no lines yet, so removing it again should just drop the entry.
+  await page.locator("#editor-speakers .speaker-remove").last().click();
+  assert.equal(await speakerItems.count(), itemsBefore, "remove speaker did not remove the entry");
 
-  const rowsBeforeMerge = await editRows.count();
-  if (rowsBeforeMerge > 1) {
-    const firstTextBefore = await editRows.first().locator(".edit-row-text").inputValue();
-    await editRows.first().locator("button", { hasText: "Merge with next" }).click();
-    assert.equal(await editRows.count(), rowsBeforeMerge - 1, "merge did not reduce the row count");
-    const mergedText = await editRows.first().locator(".edit-row-text").inputValue();
-    assert.ok(mergedText.startsWith(firstTextBefore), "merged row lost its original text");
+  // Keyboard editing: Delete at the end of a line joins the next one,
+  // Enter splits it again, Ctrl+Z undoes the split.
+  const linesBefore = await segs.count();
+  if (linesBefore > 1) {
+    const firstTextBefore = await firstText.inputValue();
+    await firstText.click();
+    await firstText.evaluate((el) => el.setSelectionRange(el.value.length, el.value.length));
+    await firstText.press("Delete");
+    assert.equal(await segs.count(), linesBefore - 1, "Delete at line end did not join lines");
+    const merged = await firstText.inputValue();
+    assert.ok(merged.startsWith(firstTextBefore), "joined line lost its original text");
 
-    // Split it back apart at roughly the midpoint.
-    const mergedTextarea = editRows.first().locator(".edit-row-text");
-    await mergedTextarea.click();
-    await mergedTextarea.evaluate((el, mid) => el.setSelectionRange(mid, mid), Math.floor(mergedText.length / 2));
-    await editRows.first().locator("button", { hasText: "Split at cursor" }).click();
-    assert.equal(await editRows.count(), rowsBeforeMerge, "split did not add a row back");
+    await firstText.evaluate((el, mid) => el.setSelectionRange(mid, mid), firstTextBefore.length);
+    await firstText.press("Enter");
+    assert.equal(await segs.count(), linesBefore, "Enter did not split the line");
+    await page.keyboard.press("Control+z");
+    assert.equal(await segs.count(), linesBefore - 1, "Ctrl+Z did not undo the split");
+    await page.click("#undo");
+    assert.equal(await segs.count(), linesBefore, "Undo did not undo the join");
   }
-  await page.click(".job:nth-child(2) .job-edit-toggle"); // Done editing
+
+  // Find & replace across every line.
+  await page.keyboard.press("Control+f");
+  await page.fill("#find-text", "EDITEDMARK");
+  assert.match(await page.textContent("#find-count"), /^1 match/);
+  await page.fill("#replace-text", "REPLACEDMARK");
+  await page.click("#replace-all");
+  assert.ok((await editorText(page)).includes("REPLACEDMARK"), "replace all did not change the text");
+
+  // Esc closes find first, then the editor.
+  await page.keyboard.press("Escape");
+  assert.ok(await page.isHidden("#find-bar"), "Esc did not close find");
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => !document.getElementById("editor").open);
 
   // Same file again with Accurate (medium on the CPU), to exercise
   // the model-swap path in engines/whisper-worker.js (ensureModel only
@@ -212,11 +239,11 @@ try {
   await waitForJobs(page, 3);
   console.log(`Accurate (CPU) job took ${((Date.now() - accurateStart) / 1000).toFixed(0)} s, model download included`);
   await assertNoErrors(page);
-  const third = await page.$(".job:nth-child(3)");
-  assert.match(await third.$eval(".job-status", (e) => e.textContent), /^Done/);
-  const accurate = (await third.$eval(".job-transcript", (e) => e.textContent)).toLowerCase();
+  assert.match(await page.textContent(".job:nth-child(3) .job-status"), /^Done/);
+  await openEditor(page, 3);
+  const accurate = (await editorText(page)).toLowerCase();
   for (const w of expected.singleSpeaker.words) assert.ok(accurate.includes(w.toLowerCase()), `Accurate model: missing "${w}" in: ${accurate}`);
-  const accurateJson = JSON.parse((await grab(".export-json", 3)).toString("utf8"));
+  const accurateJson = JSON.parse((await grab(".export-json")).toString("utf8"));
   assert.equal(accurateJson.whisper_model, "whisper.cpp ggml-medium-q5_0 (wasm)");
 
   console.log(`PASS (${browserName}): expected words found (small and medium); ${speakers.length} speakers; renamed speaker in exports; CSV/JSON/SRT/DOCX valid`);

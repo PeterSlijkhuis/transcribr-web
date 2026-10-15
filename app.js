@@ -1,11 +1,11 @@
 // app.js -- main thread: compatibility check, audio decode, file queue,
-// engine coordination, transcript rendering, export buttons.
+// engine coordination, the transcript editor and its downloads.
 //
 // Each engine runs in its own worker (engines/whisper-worker.js,
 // engines/sherpa-worker.js). Jobs run one at a time: decode here, diarize
 // in the sherpa worker, transcribe in the whisper worker, merge here.
 import { assignSpeakers } from "./merge.js";
-import { toTurns, speakerCount, fmtClock, renameSpeakers } from "./shared.js";
+import { speakerCount, fmtClock, renameSpeakers } from "./shared.js";
 import { downloadCsv } from "./export/csv.js";
 import { downloadJson } from "./export/json.js";
 import { downloadSrt } from "./export/srt.js";
@@ -413,230 +413,267 @@ function stopEstimatedProgress(job) {
   }
 }
 
-function speakerHue(index) {
-  return String((index * 137 + 210) % 360);
-}
-
 function updateDoneStatus(job) {
   if (job.status !== "done") return;
   const n = speakerCount(job.rows);
   setStatus(job, job.rows.length ? `Done: ${n} speaker${n === 1 ? "" : "s"}, ${fmtClock(job.durationSec)} long` : "Done: no speech found");
 }
 
+// ---- Downloads -------------------------------------------------------------
+// One "Download" menu instead of four buttons; the same menu sits on the
+// file's card and in the editor's toolbar.
+
+function exportMenu(job, summaryClass) {
+  const menu = document.createElement("details");
+  menu.className = "menu";
+  menu.innerHTML = `
+    <summary class="${summaryClass}">Download</summary>
+    <div class="menu-list">
+      <button type="button" class="export-docx">Word document <small>.docx</small></button>
+      <button type="button" class="export-srt">Subtitles <small>.srt</small></button>
+      <button type="button" class="export-csv">Spreadsheet <small>.csv</small></button>
+      <button type="button" class="export-json">Data <small>.json</small></button>
+    </div>
+  `;
+  const baseName = job.name.replace(/\.[^.]+$/, "");
+  const rows = () => renameSpeakers(job.rows, job.names);
+  const actions = {
+    docx: () => downloadDocx(baseName, rows(), `${baseName}_transcript.docx`),
+    srt: () => downloadSrt(rows(), `${baseName}_transcript.srt`),
+    csv: () => downloadCsv(rows(), `${baseName}_transcript.csv`),
+    json: () => downloadJson(job.name, job.durationSec, rows(), { model: job.model, translated: job.translate }, `${baseName}_transcript.json`),
+  };
+  for (const [kind, run] of Object.entries(actions)) {
+    menu.querySelector(`.export-${kind}`).addEventListener("click", () => {
+      menu.open = false;
+      run();
+    });
+  }
+  return menu;
+}
+
+// Menus close on a click elsewhere or Esc, like any app menu.
+function closeMenus(except) {
+  for (const m of document.querySelectorAll("details.menu[open]")) if (m !== except) m.open = false;
+}
+document.addEventListener("click", (e) => closeMenus(e.target.closest("details.menu")));
+
+// ---- Editor ----------------------------------------------------------------
+// A full-page view over the file list, with its own history entry so the
+// browser's Back button closes it. The transcript is always editable, one
+// text box per line, and the keyboard does the structural edits (Enter
+// splits, Backspace joins), so there's no edit mode and no per-line buttons.
+// Edits write straight into job.rows, which every export reads at download
+// time.
+
+const editor = document.getElementById("editor");
+const editorName = document.getElementById("editor-name");
+const editorMeta = document.getElementById("editor-meta");
+const editorExport = document.getElementById("editor-export");
+const editorSpeakers = document.getElementById("editor-speakers");
+const editorTranscript = document.getElementById("editor-transcript");
+const editorAudio = document.getElementById("editor-audio");
+const editorSpeed = document.getElementById("editor-speed");
+const undoBtn = document.getElementById("undo");
+const findToggle = document.getElementById("find-toggle");
+const findBar = document.getElementById("find-bar");
+const findText = document.getElementById("find-text");
+const replaceText = document.getElementById("replace-text");
+const findCount = document.getElementById("find-count");
+let current = null; // the job open in the editor
+
+function openEditor(job) {
+  current = job;
+  editorName.textContent = job.name;
+  editorExport.replaceChildren(exportMenu(job, "btn btn-sm"));
+  if (editorAudio.src !== job.url) editorAudio.src = job.url;
+  editorAudio.playbackRate = +editorSpeed.value;
+  undoBtn.disabled = !job.undo.length;
+  findCount.textContent = "";
+  if (!editor.open) {
+    history.pushState({ editor: true }, "", "#transcript");
+    editor.showModal();
+  }
+  // After showModal: the text boxes size themselves to the laid-out page.
+  render(job);
+  for (const el of editor.querySelectorAll(".editor-body, .editor-scroll")) el.scrollTop = 0;
+}
+
+// However it closes (the toolbar's Back, Esc, the browser's Back), drop the
+// history entry openEditor pushed, if it's still there.
+editor.addEventListener("close", () => {
+  editorAudio.pause();
+  current = null;
+  if (history.state && history.state.editor) history.back();
+});
+window.addEventListener("popstate", () => {
+  if (editor.open) editor.close();
+});
+// A reload can't bring the editor back (the file lived in memory), so drop
+// a stale #transcript from the address.
+if (location.hash === "#transcript") history.replaceState(null, "", location.pathname + location.search);
+
+editor.querySelector(".editor-back").addEventListener("click", () => editor.close());
+// Esc closes the innermost thing first: a menu, then the find bar, then the editor.
+editor.addEventListener("cancel", (e) => {
+  if (editor.querySelector("details.menu[open]")) {
+    e.preventDefault();
+    closeMenus();
+  } else if (!findBar.hidden) {
+    e.preventDefault();
+    showFind(false);
+  }
+});
+
+function render(job) {
+  const n = speakerCount(job.rows);
+  editorMeta.textContent = `${n} speaker${n === 1 ? "" : "s"} · ${fmtClock(job.durationSec)}`;
+  renderSpeakers(job);
+  renderTranscript(job);
+}
+
+// Re-render after any change to rows or speakers.
+function changed(job) {
+  updateDoneStatus(job);
+  render(job);
+}
+
+// ---- Undo ------------------------------------------------------------------
+// Snapshots of the whole edit state. Typing is grouped per line (a new
+// group after a 2-second pause), so one Ctrl+Z undoes a burst of typing,
+// not a single letter.
+
+function checkpoint(job) {
+  job.undo.push(structuredClone({ rows: job.rows, names: job.names, extraSpeakers: job.extraSpeakers }));
+  if (job.undo.length > 200) job.undo.shift();
+  job.typingKey = null;
+  undoBtn.disabled = false;
+}
+
+function checkpointTyping(job, key) {
+  const now = Date.now();
+  if (job.typingKey !== key || now - job.typedAt > 2000) {
+    checkpoint(job);
+    job.typingKey = key;
+  }
+  job.typedAt = now;
+}
+
+function undo(job) {
+  const snap = job.undo.pop();
+  if (!snap) return;
+  Object.assign(job, snap);
+  job.typingKey = null;
+  undoBtn.disabled = !job.undo.length;
+  changed(job);
+}
+undoBtn.addEventListener("click", () => undo(current));
+
+// ---- Speakers --------------------------------------------------------------
+
 // Speakers actually used by a row, plus any added but not yet assigned to
-// one -- so a freshly added speaker still shows up as a choice.
+// one -- so a freshly added speaker still shows up as a choice. Sorted, so
+// the list (and Alt+1-9) keeps a stable order.
 function allSpeakerIds(job) {
-  return [...new Set([...job.rows.map((r) => r.speaker_id), ...job.extraSpeakers])];
+  return [...new Set([...job.rows.map((r) => r.speaker_id), ...job.extraSpeakers])].sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true })
+  );
+}
+
+function speakerHue(index) {
+  return String((index * 137 + 210) % 360);
 }
 
 function addSpeaker(job) {
+  checkpoint(job);
   const used = allSpeakerIds(job);
   let n = used.length + 1;
   while (used.includes(`Speaker ${n}`)) n++;
   job.extraSpeakers.push(`Speaker ${n}`);
-  renderSpeakerNames(job);
-  renderTranscript(job);
+  changed(job);
+  editorSpeakers.querySelector(`input[data-speaker="Speaker ${n}"]`).focus();
 }
+document.getElementById("add-speaker").addEventListener("click", () => addSpeaker(current));
 
-// Removing a speaker moves its rows onto whichever other speaker sorts
-// first -- the same place you'd send them by hand, one at a time. The last
-// remaining speaker can't be removed, so there's always somewhere for them
-// to go.
+// Removing a speaker moves its lines onto whichever other speaker sorts
+// first. The last remaining speaker can't be removed, so there's always
+// somewhere for them to go.
 function removeSpeaker(job, id) {
   const others = allSpeakerIds(job).filter((s) => s !== id);
   if (!others.length) return;
-  const fallback = others.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))[0];
+  checkpoint(job);
   for (const row of job.rows) {
-    if (row.speaker_id === id) row.speaker_id = fallback;
+    if (row.speaker_id === id) row.speaker_id = others[0];
   }
   delete job.names[id];
   job.extraSpeakers = job.extraSpeakers.filter((s) => s !== id);
-  updateDoneStatus(job);
-  renderSpeakerNames(job);
-  renderTranscript(job);
+  changed(job);
 }
 
-/// One text box per known speaker (used or manually added); names flow
-/// into the transcript view and every export. Also where speakers get
-/// added and removed.
-function renderSpeakerNames(job) {
-  const container = job.el.querySelector(".job-speakers");
-  container.replaceChildren();
-  const originals = allSpeakerIds(job).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  if (!originals.length) return;
-  container.append("Speakers:");
-  originals.forEach((orig, i) => {
-    const label = document.createElement("label");
-    label.style.setProperty("--hue", speakerHue(i));
-    label.textContent = orig;
-    const input = document.createElement("input");
-    input.type = "text";
-    input.placeholder = orig;
-    input.dataset.speaker = orig;
-    input.value = job.names[orig] || "";
-    input.addEventListener("input", () => {
-      job.names[orig] = input.value;
-      renderTranscript(job);
-    });
-    label.append(input);
-
-    const removeBtn = document.createElement("button");
-    removeBtn.type = "button";
-    removeBtn.className = "btn btn-sm btn-ghost speaker-remove";
-    removeBtn.textContent = "×";
-    removeBtn.title = `Remove ${job.names[orig] || orig}`;
-    removeBtn.disabled = originals.length < 2;
-    removeBtn.addEventListener("click", () => removeSpeaker(job, orig));
-    label.append(removeBtn);
-
-    container.append(label);
-  });
-
-  const addBtn = document.createElement("button");
-  addBtn.type = "button";
-  addBtn.className = "btn btn-sm btn-ghost";
-  addBtn.textContent = "+ Add speaker";
-  addBtn.addEventListener("click", () => addSpeaker(job));
-  container.append(addBtn);
-
-  container.hidden = false;
+function renderSpeakers(job) {
+  const ids = allSpeakerIds(job);
+  editorSpeakers.replaceChildren(
+    ...ids.map((id, i) => {
+      const li = document.createElement("li");
+      li.className = "speaker-item";
+      li.style.setProperty("--hue", speakerHue(i));
+      const input = document.createElement("input");
+      input.type = "text";
+      input.placeholder = id;
+      input.dataset.speaker = id;
+      input.value = job.names[id] || "";
+      input.setAttribute("aria-label", `Name for ${id}`);
+      input.addEventListener("input", () => {
+        checkpointTyping(job, "name:" + id);
+        job.names[id] = input.value;
+        renderTranscript(job);
+      });
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "speaker-remove";
+      remove.textContent = "×";
+      remove.title = `Remove ${job.names[id] || id} (their lines go to another speaker)`;
+      remove.disabled = ids.length < 2;
+      remove.addEventListener("click", () => removeSpeaker(job, id));
+      li.append(input, remove);
+      return li;
+    })
+  );
 }
 
-// ---- Playback ------------------------------------------------------------
-// The original file is still in memory, so the result gets a plain <audio>
-// player (the browser's own controls include playback speed). Timestamps
-// seek into it, and the line being played is highlighted as it goes.
+// ---- Transcript ------------------------------------------------------------
 
-function timeButton(job, r) {
-  const b = document.createElement("button");
-  b.type = "button";
-  b.className = "turn-time";
-  b.title = "Play from here";
-  b.textContent = `${fmtClock(r.timestamp_start)}-${fmtClock(r.timestamp_end)}`;
-  b.addEventListener("click", () => {
-    const audio = job.el.querySelector(".job-audio");
-    audio.currentTime = r.timestamp_start;
-    audio.play();
-  });
-  return b;
+function assignSpeaker(job, i, id) {
+  if (!id || job.rows[i].speaker_id === id) return;
+  checkpoint(job);
+  job.rows[i].speaker_id = id;
+  changed(job);
 }
 
-function markRange(el, r) {
-  el.dataset.start = r.timestamp_start;
-  el.dataset.end = r.timestamp_end;
-}
-
-function followPlayback(job) {
-  const t = job.el.querySelector(".job-audio").currentTime;
-  const container = job.el.querySelector(".job-transcript");
-  for (const el of container.querySelectorAll("[data-start]")) {
-    const on = t >= +el.dataset.start && t < +el.dataset.end;
-    if (on === el.classList.contains("playing")) continue;
-    el.classList.toggle("playing", on);
-    // Keep the playing line in view, but never yank the text box someone is typing in.
-    if (on && !job.editing && (el.offsetTop < container.scrollTop || el.offsetTop + el.offsetHeight > container.scrollTop + container.clientHeight)) {
-      container.scrollTop = el.offsetTop - 40;
-    }
-  }
-}
-
-// Ctrl+Space plays/pauses the open transcript's recording, even while typing in it.
-document.addEventListener("keydown", (e) => {
-  if (!(e.ctrlKey && e.code === "Space")) return;
-  const audio = jobList.querySelector(".job-result:not([data-collapsed]) .job-audio");
-  if (!audio) return;
-  e.preventDefault();
-  if (audio.paused) audio.play();
-  else audio.pause();
-});
-
-// Edits and finished transcripts live only in this tab.
-window.addEventListener("beforeunload", (e) => {
-  if (jobList.querySelector('.job[data-status="done"]')) e.preventDefault();
-});
-
-// ---- Find & replace ------------------------------------------------------
-
-function countMatches(job, find) {
-  return find ? job.rows.reduce((n, r) => n + r.transcribed_text.split(find).length - 1, 0) : 0;
-}
-
-function setupFind(job) {
-  const bar = job.el.querySelector(".job-find");
-  const find = bar.querySelector(".find-text");
-  const replace = bar.querySelector(".replace-text");
-  const count = bar.querySelector(".find-count");
-  const update = () => {
-    const n = countMatches(job, find.value);
-    count.textContent = find.value ? `${n} match${n === 1 ? "" : "es"}` : "";
-  };
-  find.addEventListener("input", update);
-  bar.querySelector(".replace-all").addEventListener("click", () => {
-    const n = countMatches(job, find.value);
-    if (!n) return;
-    for (const r of job.rows) r.transcribed_text = r.transcribed_text.split(find.value).join(replace.value);
-    renderTranscript(job);
-    count.textContent = `Replaced ${n}`;
-  });
-  bar.hidden = false;
-}
-
-function renderTranscript(job) {
-  if (job.editing) renderTranscriptEdit(job);
-  else renderTranscriptView(job);
-  // A re-render drops the highlight; put it back without waiting for playback to move.
-  if (job.el.querySelector(".job-audio").currentTime > 0) followPlayback(job);
-}
-
-function renderTranscriptView(job) {
-  const container = job.el.querySelector(".job-transcript");
-  container.replaceChildren();
-  const rows = renameSpeakers(job.rows, job.names);
-  const speakers = [...new Set(rows.map((r) => r.speaker_id))];
-  for (const turn of toTurns(rows)) {
-    const p = document.createElement("p");
-    p.className = "turn";
-    p.style.setProperty("--hue", speakerHue(speakers.indexOf(turn.speaker_id)));
-    const who = document.createElement("span");
-    who.className = "turn-speaker";
-    who.textContent = turn.speaker_id;
-    const when = timeButton(job, turn);
-    markRange(p, turn);
-    const text = document.createElement("span");
-    text.className = "turn-text";
-    text.textContent = turn.transcribed_text;
-    p.append(who, when, text);
-    container.append(p);
-  }
-  container.hidden = false;
-}
-
-// Merges row i's text and time range into row i+1, keeping row i's
-// speaker -- the direct version of what reassigning a speaker already does
-// indirectly (toTurns collapses agreeing neighbors back together).
+// Joins row i+1 onto row i, keeping row i's speaker.
 function mergeRowWithNext(job, i) {
   const rows = job.rows;
   if (i + 1 >= rows.length) return;
+  checkpoint(job);
   const a = rows[i];
   const b = rows[i + 1];
   a.transcribed_text = [a.transcribed_text, b.transcribed_text].filter(Boolean).join(" ");
   a.timestamp_end = b.timestamp_end;
   rows.splice(i + 1, 1);
-  updateDoneStatus(job);
-  renderSpeakerNames(job);
-  renderTranscript(job);
+  changed(job);
 }
 
-// Splits row i's text into two rows at a character offset (the textarea's
-// cursor position). Whisper only gives a start/end for the whole segment,
-// so the time boundary is estimated proportionally by text length -- close
-// enough to navigate by, not a claim of exact timing.
+// Splits row i's text into two rows at a character offset. Whisper only
+// gives a start/end for the whole segment, so the time boundary is
+// estimated proportionally by text length -- close enough to navigate by,
+// not a claim of exact timing.
 function splitRow(job, i, splitAt) {
   const row = job.rows[i];
   const text = row.transcribed_text;
   const before = text.slice(0, splitAt).trim();
   const after = text.slice(splitAt).trim();
-  if (!before || !after) return;
+  if (!before || !after) return false;
+  checkpoint(job);
   const mid = row.timestamp_start + (row.timestamp_end - row.timestamp_start) * (splitAt / text.length);
   job.rows.splice(
     i,
@@ -644,146 +681,219 @@ function splitRow(job, i, splitAt) {
     { ...row, transcribed_text: before, timestamp_end: mid },
     { ...row, transcribed_text: after, timestamp_start: mid }
   );
-  updateDoneStatus(job);
-  renderSpeakerNames(job);
-  renderTranscript(job);
+  changed(job);
+  return true;
 }
 
-/// Row-level edit view: reassign a sentence's speaker, merge it into a
-/// neighboring row, split it into two, or fix up its text. Edits write
-/// straight into job.rows, which every export already reads fresh at
-/// download time.
-function renderTranscriptEdit(job) {
-  const container = job.el.querySelector(".job-transcript");
-  container.replaceChildren();
-  const originals = allSpeakerIds(job);
+function focusRow(i, offset) {
+  const text = editorTranscript.querySelectorAll(".seg-text")[i];
+  if (!text) return;
+  text.focus();
+  const at = offset === "end" ? text.value.length : offset;
+  text.setSelectionRange(at, at);
+}
+
+function autosize(text) {
+  text.style.height = "auto";
+  text.style.height = text.scrollHeight + "px";
+}
+window.addEventListener("resize", () => editorTranscript.querySelectorAll(".seg-text").forEach(autosize));
+
+// Word-processor keys on a line's text box.
+function onLineKey(job, i, text, e) {
+  const pos = text.selectionStart;
+  const caret = pos === text.selectionEnd;
+  const last = job.rows.length - 1;
+  if (e.key === "Enter") {
+    // Lines are paragraphs; a newline inside one would end up in exports.
+    e.preventDefault();
+    if (caret && splitRow(job, i, pos)) focusRow(i + 1, 0);
+  } else if (e.key === "Backspace" && caret && pos === 0 && i > 0) {
+    e.preventDefault();
+    const above = job.rows[i - 1].transcribed_text;
+    const join = above.length + (above && text.value ? 1 : 0);
+    mergeRowWithNext(job, i - 1);
+    focusRow(i - 1, join);
+  } else if (e.key === "Delete" && caret && pos === text.value.length && i < last) {
+    e.preventDefault();
+    const join = pos + (text.value && job.rows[i + 1].transcribed_text ? 1 : 0);
+    mergeRowWithNext(job, i);
+    focusRow(i, join);
+  } else if (e.key === "ArrowUp" && caret && pos === 0 && i > 0) {
+    e.preventDefault();
+    focusRow(i - 1, "end");
+  } else if (e.key === "ArrowDown" && caret && pos === text.value.length && i < last) {
+    e.preventDefault();
+    focusRow(i + 1, 0);
+  } else if (e.altKey && /^Digit[1-9]$/.test(e.code)) {
+    e.preventDefault();
+    assignSpeaker(job, i, allSpeakerIds(job)[+e.code.slice(5) - 1]);
+    focusRow(i, pos);
+  }
+}
+
+/// One paragraph per row: a gutter with the speaker (a picker, shown where
+/// the speaker changes and on hover elsewhere) and a timestamp that plays
+/// from there, then the editable text.
+function renderTranscript(job) {
+  const ids = allSpeakerIds(job);
+  const frag = document.createDocumentFragment();
   job.rows.forEach((row, i) => {
-    const line = document.createElement("div");
-    line.className = "edit-row";
-    line.style.setProperty("--hue", speakerHue(originals.indexOf(row.speaker_id)));
+    const seg = document.createElement("div");
+    seg.className = "seg";
+    if (i > 0 && job.rows[i - 1].speaker_id === row.speaker_id) seg.classList.add("cont");
+    seg.style.setProperty("--hue", speakerHue(ids.indexOf(row.speaker_id)));
+    seg.dataset.start = row.timestamp_start;
+    seg.dataset.end = row.timestamp_end;
 
+    const gutter = document.createElement("div");
+    gutter.className = "seg-gutter";
     const select = document.createElement("select");
-    select.className = "edit-row-speaker";
-    for (const orig of originals) {
-      select.add(new Option(job.names[orig] || orig, orig, false, orig === row.speaker_id));
-    }
-    select.addEventListener("change", () => {
-      row.speaker_id = select.value;
-      updateDoneStatus(job);
-      renderSpeakerNames(job);
-      renderTranscript(job);
+    select.className = "seg-speaker";
+    select.setAttribute("aria-label", "Speaker");
+    for (const id of ids) select.add(new Option(job.names[id] || id, id, false, id === row.speaker_id));
+    select.addEventListener("change", () => assignSpeaker(job, i, select.value));
+    const when = document.createElement("button");
+    when.type = "button";
+    when.className = "seg-time";
+    when.textContent = fmtClock(row.timestamp_start);
+    when.title = "Play from here";
+    when.addEventListener("click", () => {
+      editorAudio.currentTime = row.timestamp_start;
+      editorAudio.play();
     });
-
-    const when = timeButton(job, row);
-    when.classList.add("edit-row-time");
-    markRange(line, row);
+    gutter.append(select, when);
 
     const text = document.createElement("textarea");
-    text.className = "edit-row-text";
+    text.className = "seg-text";
     text.rows = 1;
+    text.spellcheck = true;
     text.value = row.transcribed_text;
-    const resize = () => {
-      text.style.height = "auto";
-      text.style.height = text.scrollHeight + "px";
-    };
+    text.setAttribute("aria-label", `Line ${i + 1}`);
     text.addEventListener("input", () => {
+      checkpointTyping(job, row);
       row.transcribed_text = text.value;
-      resize();
+      autosize(text);
     });
+    text.addEventListener("keydown", (e) => onLineKey(job, i, text, e));
 
-    const tools = document.createElement("div");
-    tools.className = "edit-row-tools";
-    const splitBtn = document.createElement("button");
-    splitBtn.type = "button";
-    splitBtn.className = "btn btn-sm btn-ghost";
-    splitBtn.textContent = "Split at cursor";
-    splitBtn.addEventListener("click", () => {
-      if (text.selectionStart > 0 && text.selectionStart < text.value.length) splitRow(job, i, text.selectionStart);
-    });
-    tools.append(splitBtn);
-    if (i + 1 < job.rows.length) {
-      const mergeBtn = document.createElement("button");
-      mergeBtn.type = "button";
-      mergeBtn.className = "btn btn-sm btn-ghost";
-      mergeBtn.textContent = "Merge with next ↓";
-      mergeBtn.addEventListener("click", () => mergeRowWithNext(job, i));
-      tools.append(mergeBtn);
+    seg.append(gutter, text);
+    frag.append(seg);
+  });
+  editorTranscript.replaceChildren(frag);
+  editorTranscript.querySelectorAll(".seg-text").forEach(autosize);
+  followPlayback();
+}
+
+// ---- Playback --------------------------------------------------------------
+// The original file is still in memory, so the editor plays it. The line
+// being played is highlighted and kept in view, unless you're typing.
+
+function followPlayback() {
+  const t = editorAudio.currentTime;
+  if (!t) return;
+  const view = editor.querySelector(".editor-body").getBoundingClientRect();
+  for (const el of editorTranscript.children) {
+    const on = t >= +el.dataset.start && t < +el.dataset.end;
+    if (on === el.classList.contains("playing")) continue;
+    el.classList.toggle("playing", on);
+    if (on && !(document.activeElement && document.activeElement.classList.contains("seg-text"))) {
+      const r = el.getBoundingClientRect();
+      if (r.top < view.top || r.bottom > view.bottom) el.scrollIntoView({ block: "center", behavior: "smooth" });
     }
+  }
+}
+editorAudio.addEventListener("timeupdate", followPlayback);
+editorSpeed.addEventListener("change", () => (editorAudio.playbackRate = +editorSpeed.value));
 
-    line.append(select, when, text, tools);
-    container.append(line);
-    resize();
-  });
-  container.hidden = false;
+// Editor-wide keys: Ctrl+Space plays/pauses even while typing, Ctrl+Z is
+// the editor's undo (it also covers speaker changes, splits and joins, which
+// a text box's own undo can't), Ctrl+F opens find.
+editor.addEventListener("keydown", (e) => {
+  const mod = e.ctrlKey || e.metaKey;
+  if (e.ctrlKey && e.code === "Space") {
+    e.preventDefault();
+    if (editorAudio.paused) editorAudio.play();
+    else editorAudio.pause();
+  } else if (mod && !e.shiftKey && e.key.toLowerCase() === "z" && !findBar.contains(e.target)) {
+    e.preventDefault();
+    undo(current);
+  } else if (mod && (e.key.toLowerCase() === "f" || e.key.toLowerCase() === "h")) {
+    e.preventDefault();
+    showFind(true);
+  }
+});
+
+// Edits and finished transcripts live only in this tab.
+window.addEventListener("beforeunload", (e) => {
+  if (jobList.querySelector('.job[data-status="done"]')) e.preventDefault();
+});
+
+// ---- Find & replace --------------------------------------------------------
+
+let foundAt = -1;
+
+function countMatches(job, find) {
+  return find ? job.rows.reduce((n, r) => n + r.transcribed_text.split(find).length - 1, 0) : 0;
 }
 
-// Only one job's result (rename panel + transcript) is expanded at a time,
-// so finishing a long queue doesn't leave every result's full text sitting
-// open at once -- collapse the rest whenever one opens.
-function isCollapsed(el) {
-  return el.hasAttribute("data-collapsed");
+function showFind(show) {
+  findBar.hidden = !show;
+  findToggle.setAttribute("aria-expanded", String(show));
+  if (show) {
+    findText.focus();
+    findText.select();
+  } else {
+    editorTranscript.querySelector(".found")?.classList.remove("found");
+  }
 }
+findToggle.addEventListener("click", () => showFind(findBar.hidden));
 
-function collapseAllResults() {
-  jobList.querySelectorAll(".job-result:not([data-collapsed])").forEach((wrap) => {
-    setCollapsed(wrap, true);
-    const toggle = wrap.closest(".job").querySelector(".job-view-toggle");
-    if (toggle) toggle.textContent = "View transcript";
-  });
-}
+findText.addEventListener("input", () => {
+  foundAt = -1;
+  const n = countMatches(current, findText.value);
+  findCount.textContent = findText.value ? `${n} match${n === 1 ? "" : "es"}` : "";
+});
 
-function expandResult(job) {
-  collapseAllResults();
-  setCollapsed(job.el.querySelector(".job-result"), false);
-  job.el.querySelector(".job-view-toggle").textContent = "Hide transcript";
-}
+// Enter in the find box jumps to the next line containing the text.
+findText.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" || !findText.value) return;
+  e.preventDefault();
+  const rows = current.rows;
+  for (let k = 1; k <= rows.length; k++) {
+    const i = (foundAt + k) % rows.length;
+    if (!rows[i].transcribed_text.includes(findText.value)) continue;
+    foundAt = i;
+    editorTranscript.querySelector(".found")?.classList.remove("found");
+    const seg = editorTranscript.children[i];
+    seg.classList.add("found");
+    seg.scrollIntoView({ block: "center" });
+    return;
+  }
+});
+
+document.getElementById("replace-all").addEventListener("click", () => {
+  const job = current;
+  const n = countMatches(job, findText.value);
+  if (!n) return;
+  checkpoint(job);
+  for (const r of job.rows) r.transcribed_text = r.transcribed_text.split(findText.value).join(replaceText.value);
+  changed(job);
+  findCount.textContent = `Replaced ${n}`;
+});
+
+// ---- Finished jobs -----------------------------------------------------------
 
 function finishJob(job) {
   job.status = "done";
   updateDoneStatus(job);
   job.el.dataset.status = "done";
-
-  const exportsEl = job.el.querySelector(".job-exports");
-  exportsEl.hidden = false;
-  const baseName = job.name.replace(/\.[^.]+$/, "");
-  const rows = () => renameSpeakers(job.rows, job.names);
-  exportsEl.querySelector(".export-csv").onclick = () => downloadCsv(rows(), `${baseName}_transcript.csv`);
-  exportsEl.querySelector(".export-json").onclick = () =>
-    downloadJson(job.name, job.durationSec, rows(), { model: job.model, translated: job.translate }, `${baseName}_transcript.json`);
-  exportsEl.querySelector(".export-srt").onclick = () => downloadSrt(rows(), `${baseName}_transcript.srt`);
-  exportsEl.querySelector(".export-docx").onclick = () => downloadDocx(baseName, rows(), `${baseName}_transcript.docx`);
-
-  const editToggle = job.el.querySelector(".job-edit-toggle");
-  editToggle.hidden = !job.rows.length;
-  editToggle.onclick = () => {
-    if (isCollapsed(job.el.querySelector(".job-result"))) expandResult(job);
-    job.editing = !job.editing;
-    editToggle.textContent = job.editing ? "Done editing" : "Edit transcript";
-    renderTranscript(job);
-  };
-
-  const viewToggle = job.el.querySelector(".job-view-toggle");
-  viewToggle.hidden = !job.rows.length;
-  viewToggle.onclick = () => {
-    if (isCollapsed(job.el.querySelector(".job-result"))) expandResult(job);
-    else {
-      setCollapsed(job.el.querySelector(".job-result"), true);
-      viewToggle.textContent = "View transcript";
-    }
-  };
-
-  if (job.rows.length) {
-    const audio = job.el.querySelector(".job-audio");
-    audio.src = URL.createObjectURL(job.file);
-    audio.addEventListener("timeupdate", () => followPlayback(job));
-    audio.hidden = false;
-    setupFind(job);
-  }
-  renderSpeakerNames(job);
-  renderTranscript(job);
-  // Don't steal focus from a result the user already has open; only default
-  // to showing the one that just finished when nothing else is expanded.
-  if (job.rows.length && !jobList.querySelector(".job-result:not([data-collapsed])")) expandResult(job);
+  if (!job.rows.length) return;
+  job.url = URL.createObjectURL(job.file);
+  const actions = job.el.querySelector(".job-actions");
+  actions.querySelector(".job-open").addEventListener("click", () => openEditor(job));
+  actions.append(exportMenu(job, "btn btn-sm btn-ghost"));
+  actions.hidden = false;
 }
 
 function failJob(job, message) {
@@ -954,8 +1064,7 @@ function removeJob(job) {
     for (const engine of [sherpa, whisper, gpu]) engine.crash(new Error("cancelled"));
   }
   stopEstimatedProgress(job);
-  const audio = job.el.querySelector(".job-audio");
-  if (audio.src) URL.revokeObjectURL(audio.src);
+  if (job.url) URL.revokeObjectURL(job.url);
   job.el.remove();
 }
 
@@ -969,33 +1078,13 @@ function addJob(file) {
     <progress class="job-progress" max="1" value="0" hidden></progress>
     <div class="job-error"></div>
     <button class="btn btn-sm job-retry" hidden>Retry</button>
-    <button class="btn btn-sm btn-ghost job-view-toggle" hidden>View transcript</button>
-    <div class="job-exports" hidden>
-      <span class="job-exports-label">Download:</span>
-      <button class="btn btn-sm export-csv">CSV</button>
-      <button class="btn btn-sm export-json">JSON</button>
-      <button class="btn btn-sm export-srt">SRT</button>
-      <button class="btn btn-sm export-docx">DOCX</button>
-      <button class="btn btn-sm btn-ghost job-edit-toggle" hidden>Edit transcript</button>
-    </div>
-    <div class="job-result" data-collapsed inert>
-      <div class="collapsible-inner">
-        <audio class="job-audio" controls preload="metadata" hidden></audio>
-        <div class="job-find" hidden>
-          <input type="search" class="find-text" placeholder="Find" aria-label="Find" />
-          <input type="text" class="replace-text" placeholder="Replace with" aria-label="Replace with" />
-          <button type="button" class="btn btn-sm btn-ghost replace-all">Replace all</button>
-          <span class="find-count" aria-live="polite"></span>
-          <span class="find-tip">Tip: click a timestamp to play from there, Ctrl+Space to play/pause.</span>
-        </div>
-        <div class="job-speakers" hidden></div>
-        <div class="job-transcript" hidden></div>
-      </div>
+    <div class="job-actions" hidden>
+      <button type="button" class="btn btn-sm job-open">Open transcript</button>
     </div>
   `;
   li.querySelector(".job-name").textContent = file.name;
   jobList.appendChild(li);
-  const job = { name: file.name, file, el: li, rows: [], names: {}, extraSpeakers: [], durationSec: 0, editing: false };
+  const job = { name: file.name, file, el: li, rows: [], names: {}, extraSpeakers: [], durationSec: 0, undo: [] };
   li.querySelector(".job-remove").setAttribute("aria-label", `Remove ${file.name}`);
   li.querySelector(".job-remove").onclick = () => removeJob(job);
   enqueue(job);

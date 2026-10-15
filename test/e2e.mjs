@@ -7,8 +7,12 @@
 // again, to cover model switching and the quantized models. Nothing is mocked: the engines come
 // from the Hugging Face URLs in engines/manifest.json. A persistent browser
 // profile keeps the ~275MB engine download in Cache Storage between runs
-// (CI caches .playwright-profile/ keyed on the manifest).
-import { chromium } from "playwright";
+// (CI caches .playwright-profile-<browser>/ keyed on the manifest).
+//
+// BROWSER=chromium|firefox|webkit picks the engine (webkit is Safari's).
+// The server sends no COOP/COEP headers, like GitHub Pages, so the page
+// only works if coi-serviceworker.js isolates it, as in production.
+import { chromium, firefox, webkit } from "playwright";
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -28,11 +32,15 @@ async function readDownload(download) {
 }
 
 async function waitForJobs(page, count) {
+  // Log every change, so a failure shows which step it happened in.
+  let last = "";
   const statusLog = setInterval(async () => {
     const s = await page.$$eval(".job", (els) => els.map((e) => `${e.dataset.status}: ${e.querySelector(".job-status").textContent}`)).catch(() => []);
     const banner = await page.textContent("#engine-status").catch(() => "");
-    console.log("[status]", s.join(" | "), "|", banner);
-  }, 10_000);
+    const line = `${s.join(" | ")} | ${banner}`.replace(/\d+%|\d+ of \d+ MB|\d+ MB|\d\d:\d\d so far/g, "#");
+    if (line !== last) console.log("[status]", s.join(" | "), "|", banner);
+    last = line;
+  }, 1_000);
   try {
     await page.waitForFunction(
       (n) => {
@@ -65,16 +73,20 @@ async function assertNoErrors(page) {
   assert.deepEqual(errors, [], "jobs failed");
 }
 
+const browserName = process.env.BROWSER || "chromium";
+const browserType = { chromium, firefox, webkit }[browserName];
+process.env.PAGES = "1";
 const server = await startServer(PORT);
-const profileDir = path.join(repoRoot, ".playwright-profile");
+const profileDir = path.join(repoRoot, `.playwright-profile-${browserName}`);
 if (!existsSync(profileDir)) mkdirSync(profileDir, { recursive: true });
-const context = await chromium.launchPersistentContext(profileDir, { headless: true, acceptDownloads: true });
+const context = await browserType.launchPersistentContext(profileDir, { headless: true, acceptDownloads: true });
 
 try {
   const page = await context.newPage();
   page.on("console", (msg) => console.log("[page]", msg.text()));
   page.on("pageerror", (err) => console.log("[pageerror]", err.message));
   await page.goto(`http://localhost:${PORT}/index.html`);
+  // The service worker reloads the page once to isolate it.
   await page.waitForFunction(() => self.crossOriginIsolated === true, null, { timeout: 15_000 });
 
   // The optional waiting-room game: doesn't touch transcription state, so
@@ -89,7 +101,7 @@ try {
   // fixtures are synthesized TTS voices, so pin the count rather than rely
   // on the auto-detect threshold for them.
   await page.fill("#num-speakers", String(expected.twoSpeaker.expectedSpeakerCount));
-  await page.fill("#language", "en");
+  await page.selectOption("#language", "en");
   await page.setInputFiles("#file-input", [
     path.join(fixtures, expected.singleSpeaker.file),
     path.join(fixtures, expected.twoSpeaker.file),
@@ -212,24 +224,29 @@ try {
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => !document.getElementById("editor").open);
 
-  // Same file again with the "medium" model, to exercise the model-swap
-  // path in engines/whisper-worker.js (ensureModel only reloads when the
-  // URL actually changes from the default). The model picker lives in the
-  // Settings dialog.
+  // Same file again with Accurate (medium on the CPU), to exercise
+  // the model-swap path in engines/whisper-worker.js (ensureModel only
+  // reloads when the URL actually changes from the default). The model
+  // picker lives in the Settings dialog. It's queued twice and the second
+  // copy removed while it waits, which must leave three jobs.
   await page.click("#settings-open");
   await page.selectOption("#model", "medium");
   await page.click("#settings-dialog .btn");
-  await page.setInputFiles("#file-input", path.join(fixtures, expected.singleSpeaker.file));
+  const singleFile = path.join(fixtures, expected.singleSpeaker.file);
+  await page.setInputFiles("#file-input", [singleFile, singleFile]);
+  await page.click(".job:nth-child(4) .job-remove");
+  const accurateStart = Date.now();
   await waitForJobs(page, 3);
+  console.log(`Accurate (CPU) job took ${((Date.now() - accurateStart) / 1000).toFixed(0)} s, model download included`);
   await assertNoErrors(page);
   assert.match(await page.textContent(".job:nth-child(3) .job-status"), /^Done/);
   await openEditor(page, 3);
-  const medium = (await editorText(page)).toLowerCase();
-  for (const w of expected.singleSpeaker.words) assert.ok(medium.includes(w.toLowerCase()), `medium model: missing "${w}" in: ${medium}`);
-  const mediumJson = JSON.parse((await grab(".export-json")).toString("utf8"));
-  assert.equal(mediumJson.whisper_model, "whisper.cpp ggml-medium-q5_0 (wasm)");
+  const accurate = (await editorText(page)).toLowerCase();
+  for (const w of expected.singleSpeaker.words) assert.ok(accurate.includes(w.toLowerCase()), `Accurate model: missing "${w}" in: ${accurate}`);
+  const accurateJson = JSON.parse((await grab(".export-json")).toString("utf8"));
+  assert.equal(accurateJson.whisper_model, "whisper.cpp ggml-medium-q5_0 (wasm)");
 
-  console.log(`PASS: expected words found (small and medium); ${speakers.length} speakers; renamed speaker in exports; CSV/JSON/SRT/DOCX valid`);
+  console.log(`PASS (${browserName}): expected words found (small and medium); ${speakers.length} speakers; renamed speaker in exports; CSV/JSON/SRT/DOCX valid`);
 } catch (err) {
   // Leave enough in the CI log to diagnose without a rerun.
   const html = await context.pages()[0]?.innerHTML("#job-list").catch(() => "(page gone)");

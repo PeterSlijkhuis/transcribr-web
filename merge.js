@@ -4,6 +4,30 @@
 // whisper.wasm's embind API has no equivalent to whisper-cli's -ml/-sow
 // segment-length cap, so splitAtBoundaries is the only mechanism
 // apportioning a longer whisper segment across a speaker change inside it.
+// It has no word timestamps either, so a cut's word position is estimated
+// from time (evenly spaced words) and then snapped to nearby punctuation.
+
+const SENTENCE_END = /[.?!\u2026]["')\]]*$/;
+const CLAUSE_END = /[,;:\u2014-]["')\]]*$/;
+const SNAP_SEC = 1.5;
+
+// The word index to cut before, given the time-estimated one: the nearest
+// sentence end within SNAP_SEC of speech, else the nearest clause end, else
+// the estimate. A speaker change inside a sentence is rare; the estimate's
+// error (diarization's boundary plus uneven speaking rate) usually isn't.
+// Limit: a fixed window. Word timestamps (token-level whisper output) would
+// remove the guessing if the mid-sentence cuts persist.
+function snapCut(tokens, idx, lo, hi, wordsPerSec) {
+  const reach = Math.max(2, Math.round(SNAP_SEC * wordsPerSec));
+  for (const re of [SENTENCE_END, CLAUSE_END]) {
+    for (let d = 0; d <= reach; d++) {
+      for (const k of [idx - d, idx + d]) {
+        if (k >= lo && k <= hi && re.test(tokens[k - 1])) return k;
+      }
+    }
+  }
+  return idx;
+}
 
 function round3(x) {
   return Math.round(x * 1000) / 1000;
@@ -32,7 +56,8 @@ export function splitAtBoundaries(dsegs, w) {
   let startI = 0;
   for (const b of uniqSorted) {
     const raw = Math.round((tokens.length * (b - w.t0)) / dur);
-    const idx = Math.max(startI + 1, Math.min(tokens.length - 1, raw));
+    const lo = startI + 1, hi = tokens.length - 1;
+    const idx = snapCut(tokens, Math.max(lo, Math.min(hi, raw)), lo, hi, tokens.length / dur);
     if (idx > startI) {
       pieces.push({ t0: startT, t1: b, text: tokens.slice(startI, idx).join(" ") });
       startT = b;

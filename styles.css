@@ -1097,3 +1097,16 @@ input[type="checkbox"] {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* Remove sits in the job card's top-right corner; the name keeps clear of it. */
+.job {
+  position: relative;
+}
+.job-remove {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+}
+.job-name {
+  padding-right: 5.5rem;
+}

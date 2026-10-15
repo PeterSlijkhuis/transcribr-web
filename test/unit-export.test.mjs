@@ -40,6 +40,11 @@ test("toJsonString includes segments, turns and speaker count", () => {
   assert.equal(obj.turns.length, 2);
 });
 
+test("toJsonString names the GPU engine for GPU transcripts", () => {
+  const obj = JSON.parse(toJsonString("a.wav", 3, rows, { model: "onnx-community/whisper-small (GPU)" }));
+  assert.equal(obj.whisper_model, "Transformers.js onnx-community/whisper-small (GPU)");
+});
+
 test("buildDocx produces a ZIP that unzip accepts, with escaped text inside", () => {
   const bytes = buildDocx("Test", rows);
   const dir = mkdtempSync(path.join(tmpdir(), "docx-"));

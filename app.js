@@ -386,9 +386,8 @@ function setStatus(job, stage, fraction) {
   if (fraction !== undefined) bar.value = fraction;
 }
 
-// Decoding and diarization report no progress of their own (the browser's
-// AudioContext and sherpa-onnx's diarization call are both black boxes
-// until they resolve), so estimate against a rough expected duration
+// Decoding reports no progress of its own (the browser's AudioContext is a
+// black box until it resolves), so estimate against a rough expected duration
 // instead of leaving the bar hidden for the whole step. Eases toward 92%;
 // past that the estimate was wrong, so it switches to an animated bar and
 // an elapsed clock rather than sitting on a number that looks frozen.
@@ -974,7 +973,13 @@ async function processJob(job) {
   // Speaker detection runs alongside transcription: neither needs the
   // other's output, and whisper leaves one core free (or runs on the GPU).
   // Posted as a copy, before whisper takes the samples.
-  const diarizing = sherpa.request({ type: "diarize", samples, numSpeakers });
+  // Its progress shows once transcription is done; until then it's only kept.
+  let diarFraction = 0;
+  let showDiar = false;
+  const diarizing = sherpa.request({ type: "diarize", samples, numSpeakers }, [], (p) => {
+    diarFraction = p.fraction;
+    if (showDiar) setStatus(job, "Detecting speakers", diarFraction);
+  });
   diarizing.catch(() => {}); // awaited below; don't report it as unhandled meanwhile
 
   const transcribe = async () => {
@@ -1037,15 +1042,9 @@ async function processJob(job) {
     throw err;
   }
 
-  // sherpa-onnx's diarization call has no progress signal of its own; if it
-  // is still going, estimate against a rough multiple of the audio's length.
-  startEstimatedProgress(job, "Detecting speakers", Math.max(1500, durationSec * 400));
-  let diar;
-  try {
-    diar = await diarizing;
-  } finally {
-    stopEstimatedProgress(job);
-  }
+  showDiar = true;
+  setStatus(job, "Detecting speakers", diarFraction);
+  const diar = await diarizing;
   const dsegs = diar.segments.map((s) => ({ s: s.start, e: s.end, spk: s.speaker }));
 
   job.rows = assignSpeakers(tr.segments, dsegs);

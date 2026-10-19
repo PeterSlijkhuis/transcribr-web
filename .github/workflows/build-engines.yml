@@ -98,7 +98,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: engines-build/sherpa/src
-          key: sherpa-src-c29b1838c843f92c7ad58eb81e174ccb4c3508cf
+          key: sherpa-src-11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf
 
       - name: Build sherpa-onnx wasm diarization
         run: bash engines-build/sherpa/build.sh
@@ -155,7 +155,9 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_REPO_ID: ${{ github.event.inputs.hf_repo_id }}
           VERSION_LABEL: ${{ github.event.inputs.version_label }}
+        # Each build goes in its own folder, so publishing never changes the
+        # files the live site's manifest points at; a PR switches it over.
         run: |
-          hf upload "$HF_REPO_ID" publish . \
+          hf upload "$HF_REPO_ID" publish "$VERSION_LABEL" \
             --repo-type model \
             --commit-message "$VERSION_LABEL"

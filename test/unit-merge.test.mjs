@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { assignSpeakers, splitAtBoundaries } from "../merge.js";
+import { assignSpeakers, regroupSentences, splitAtBoundaries } from "../merge.js";
 
 test("assignSpeakers assigns by max overlap", () => {
   const wsegs = [
@@ -90,4 +90,33 @@ test("splitAtBoundaries falls back to a comma, then to the time estimate", () =>
   assert.deepEqual(splitAtBoundaries(dsegs, comma).map((p) => p.text), ["well I think,", "that we should go"]);
   const bare = { t0: 0, t1: 4, text: "one two three four" };
   assert.deepEqual(splitAtBoundaries(dsegs, bare).map((p) => p.text), ["one two", "three four"]);
+});
+
+test("regroupSentences re-cuts whisper segments at sentence ends, per speaker", () => {
+  const rows = regroupSentences([
+    { spk: 0, t0: 0, t1: 4, text: "So I went to the" },
+    { spk: 0, t0: 4, t1: 8, text: "store. It was closed, so" },
+    { spk: 0, t0: 8, t1: 10, text: "I left." },
+    { spk: 1, t0: 10, t1: 12, text: "Really? Why" },
+    { spk: 0, t0: 12, t1: 13, text: "Yes" },
+  ]);
+  assert.deepEqual(
+    rows.map((r) => [r.spk, r.text]),
+    [
+      [0, "So I went to the store."],
+      [0, "It was closed, so I left."],
+      [1, "Really?"],
+      [1, "Why"],
+      [0, "Yes"],
+    ]
+  );
+  assert.deepEqual([rows[0].t0, rows[0].t1], [0, 4.8]);
+  assert.equal(rows[1].t0, 4.8);
+});
+
+test("regroupSentences breaks an unpunctuated run at a segment end after 30 s", () => {
+  const segs = Array.from({ length: 10 }, (_, i) => ({ spk: 0, t0: i * 5, t1: i * 5 + 5, text: "and then" }));
+  const rows = regroupSentences(segs);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[1].t0, 35);
 });

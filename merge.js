@@ -7,9 +7,12 @@
 // It has no word timestamps either, so a cut's word position is estimated
 // from time (evenly spaced words) and then snapped to nearby punctuation.
 
-const SENTENCE_END = /[.?!\u2026]["')\]]*$/;
+const SENTENCE_END = /[.?!\u2026\u3002\uff1f\uff01]["')\]]*$/;
 const CLAUSE_END = /[,;:\u2014-]["')\]]*$/;
 const SNAP_SEC = 1.5;
+// A sentence with no end punctuation in sight still gets a new line at the
+// next whisper segment end once it runs this long.
+const MAX_LINE_SEC = 30;
 
 // The word index to cut before, given the time-estimated one: the nearest
 // sentence end within SNAP_SEC of speech, else the nearest clause end, else
@@ -27,6 +30,35 @@ function snapCut(tokens, idx, lo, hi, wordsPerSec) {
     }
   }
   return idx;
+}
+
+// Whisper's segments end where its timestamp tokens fall (roughly every few
+// seconds of audio), not at punctuation, so one row per segment cuts most
+// sentences in half. Re-cut each same-speaker run at sentence ends instead.
+// Word times are spread evenly inside their source segment, the same
+// estimate splitAtBoundaries uses.
+// ponytail: "Dr." or "e.g." ends a line; an abbreviation list fixes that
+// if it shows up in practice.
+export function regroupSentences(rows) {
+  const out = [];
+  let cur = null;
+  const flush = () => {
+    if (cur) out.push({ spk: cur.spk, t0: cur.t0, t1: cur.t1, text: cur.words.join(" ") });
+    cur = null;
+  };
+  for (const r of rows) {
+    if (cur && (cur.spk !== r.spk || r.t0 - cur.t0 > MAX_LINE_SEC)) flush();
+    const words = r.text.trim().split(/\s+/).filter((t) => t !== "");
+    const step = (r.t1 - r.t0) / Math.max(1, words.length);
+    words.forEach((word, k) => {
+      if (!cur) cur = { spk: r.spk, t0: r.t0 + step * k, words: [] };
+      cur.words.push(word);
+      cur.t1 = r.t0 + step * (k + 1);
+      if (SENTENCE_END.test(word)) flush();
+    });
+  }
+  flush();
+  return out;
 }
 
 function round3(x) {
@@ -109,8 +141,9 @@ export function assignSpeakers(wsegs, dsegs) {
     if (!order.has(spk)) order.set(spk, order.size + 1);
     return order.get(spk);
   };
-  return split.map((w) => ({
-    speaker_id: `Speaker ${numberOf(speakerOf(w))}`,
+  const lines = regroupSentences(split.map((w) => ({ ...w, spk: speakerOf(w) })));
+  return lines.map((w) => ({
+    speaker_id: `Speaker ${numberOf(w.spk)}`,
     timestamp_start: round3(w.t0),
     timestamp_end: round3(w.t1),
     transcribed_text: w.text.trim(),

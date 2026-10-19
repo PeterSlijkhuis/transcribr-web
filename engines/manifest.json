@@ -34,9 +34,9 @@
     ]
   },
   "sherpa": {
-    "helperJsUrl": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/sherpa-onnx-speaker-diarization.js",
-    "mainJsUrl": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/sherpa-onnx-wasm-main-speaker-diarization.js",
-    "wasmUrl": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/sherpa-onnx-wasm-main-speaker-diarization.wasm",
-    "dataUrl": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/sherpa-onnx-wasm-main-speaker-diarization.data"
+    "helperJsUrl": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/sherpa-v1.13.8/sherpa-onnx-speaker-diarization.js",
+    "mainJsUrl": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/sherpa-v1.13.8/sherpa-onnx-wasm-main-speaker-diarization.js",
+    "wasmUrl": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/sherpa-v1.13.8/sherpa-onnx-wasm-main-speaker-diarization.wasm",
+    "dataUrl": "https://huggingface.co/Warlordys/transcribr-web/resolve/main/sherpa-v1.13.8/sherpa-onnx-wasm-main-speaker-diarization.data"
   }
 }

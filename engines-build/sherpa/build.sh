@@ -7,7 +7,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-PIN=c29b1838c843f92c7ad58eb81e174ccb4c3508cf
+PIN=11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf # v1.13.8
 if [ ! -d src ]; then
   git clone -c core.longpaths=true https://github.com/k2-fsa/sherpa-onnx src
 fi
@@ -47,6 +47,11 @@ fi
 [ -n "${SEG_SCRATCH:-}" ] && rm -rf "$SEG_SCRATCH"
 
 cd src
+# app.js shows real progress through ProcessWithCallback, which needs a JS
+# callback in the wasm function table: allow table growth, export addFunction and removeFunction.
+CML=wasm/speaker-diarization/CMakeLists.txt
+grep -q ALLOW_TABLE_GROWTH "$CML" || sed -i 's|-sSTACK_SIZE=10485760 |-sSTACK_SIZE=10485760 -sALLOW_TABLE_GROWTH=1 |; s|EXPORTED_RUNTIME_METHODS=\[|EXPORTED_RUNTIME_METHODS=[\x27addFunction\x27,\x27removeFunction\x27,|' "$CML"
+grep -q "ALLOW_TABLE_GROWTH" "$CML" && grep -q "removeFunction" "$CML" || { echo "error: could not patch $CML for addFunction" >&2; exit 1; }
 ./build-wasm-simd-speaker-diarization.sh
 
 mkdir -p ../dist

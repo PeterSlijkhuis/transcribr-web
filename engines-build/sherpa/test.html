@@ -34,12 +34,13 @@
   async function runTest() {
     document.getElementById("run").disabled = true;
     const config = {
-      segmentation: { pyannote: { model: "./segmentation.onnx" }, debug: 1 },
+      segmentation: { pyannote: { model: "./segmentation.onnx", windowShiftRatio: 0.25 }, debug: 1 },
       embedding: { model: "./embedding.onnx", debug: 1 },
       clustering: { numClusters: 2, threshold: 0.5 },
       minDurationOn: 0.3,
       minDurationOff: 0.5,
     };
+    if (typeof Module.addFunction !== "function") throw new Error("addFunction is not exported");
     const sd = createOfflineSpeakerDiarization(Module, config);
     log("sampleRate=" + sd.sampleRate);
     const audio = await decodeFixture("../fixtures/two-speaker.wav", sd.sampleRate);

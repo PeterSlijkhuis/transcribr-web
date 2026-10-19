@@ -155,7 +155,9 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_REPO_ID: ${{ github.event.inputs.hf_repo_id }}
           VERSION_LABEL: ${{ github.event.inputs.version_label }}
+        # Each build goes in its own folder, so publishing never changes the
+        # files the live site's manifest points at; a PR switches it over.
         run: |
-          hf upload "$HF_REPO_ID" publish . \
+          hf upload "$HF_REPO_ID" publish "$VERSION_LABEL" \
             --repo-type model \
             --commit-message "$VERSION_LABEL"

@@ -7,6 +7,14 @@ scripts for, the following open-source projects:
 - **sherpa-onnx** — https://github.com/k2-fsa/sherpa-onnx — Apache License 2.0
 - **coi-serviceworker** — https://github.com/gzuidhof/coi-serviceworker — MIT License
 
+The graphics card (WebGPU) engine loads **Transformers.js**
+(https://github.com/huggingface/transformers.js, Apache License 2.0) from
+jsDelivr at runtime, with ONNX Whisper models from huggingface.co/onnx-community.
+Whisper models are by OpenAI (https://github.com/openai/whisper, MIT License).
+
+The University of Twente and BMS Lab logos in `logos/` are the property of
+their owners and are not covered by this project's licences.
+
 The sherpa-onnx pyannote segmentation-3.0 / NeMo TitaNet speaker-embedding
 models used by this app are downloaded from their original publishers
 (Hugging Face) at build time — see `engines-build/sherpa/build.sh` for

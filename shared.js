@@ -10,6 +10,14 @@ export function fmtClock(sec) {
   return `${mm}:${ss}`;
 }
 
+/// Remaining time from the pace so far, e.g. "about 4 min left". Empty
+/// until there's enough progress for the guess to settle.
+export function timeLeft(elapsedSec, fraction) {
+  if (fraction < 0.05 || elapsedSec < 5) return "";
+  const left = (elapsedSec * (1 - fraction)) / fraction;
+  return left < 60 ? "under a minute left" : `about ${Math.round(left / 60)} min left`;
+}
+
 /// Collapse consecutive same-speaker rows into conversational turns.
 export function toTurns(rows) {
   const acc = [];

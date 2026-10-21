@@ -1,6 +1,6 @@
 <div align="center">
 
-# transcribr-web
+# Transcribr
 
 **Transcription and speaker diarization that runs entirely in your browser.**
 No server, no install, no upload. Your audio never leaves your machine.
@@ -79,7 +79,7 @@ there is no separate save step.
 ## Privacy
 
 **Your audio and video files are never uploaded anywhere: not to GitHub,
-not to us, not to anyone.** transcribr-web is a static page with no backend
+not to us, not to anyone.** Transcribr is a static page with no backend
 and no analytics.
 
 You don't have to take that on trust. The app makes exactly three kinds of
@@ -178,7 +178,7 @@ see below.
 <details>
 <summary><strong>Is this WhisperX?</strong></summary>
 
-No. WhisperX is a Python pipeline that needs a GPU server. transcribr-web
+No. WhisperX is a Python pipeline that needs a GPU server. Transcribr
 uses the same idea (Whisper for words, a separate diarization model for
 speakers, then a merge by time overlap) but built from
 [whisper.cpp](https://github.com/ggml-org/whisper.cpp) and
@@ -353,7 +353,25 @@ See `docs/superpowers/specs/` for the full design.
 
 ## Credits
 
-Built on [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (MIT) and
-[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (Apache-2.0), with
-cross-origin isolation via [coi-serviceworker](https://github.com/gzuidhof/coi-serviceworker)
-(MIT). Full attribution in `NOTICE.md`.
+Transcribr is developed by dr. P.J.H. Slijkhuis at the
+[BMS Lab](https://bmslab.utwente.nl/), [University of Twente](https://www.utwente.nl/en/).
+
+<p>
+  <a href="https://www.utwente.nl/en/"><img src="logos/utwente.png" alt="University of Twente" height="48" /></a>
+  &nbsp;&nbsp;
+  <a href="https://bmslab.utwente.nl/"><img src="logos/bmslab.png" alt="The BMS Lab" height="48" /></a>
+</p>
+
+Built on:
+
+- [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (MIT) running OpenAI's
+  [Whisper](https://github.com/openai/whisper) models (MIT)
+- [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (Apache-2.0) with the
+  pyannote segmentation-3.0 and NeMo TitaNet speaker models
+- [Transformers.js](https://github.com/huggingface/transformers.js) (Apache-2.0)
+  for the graphics card engine
+- [coi-serviceworker](https://github.com/gzuidhof/coi-serviceworker) (MIT) for
+  cross-origin isolation
+
+Full attribution in `NOTICE.md`. The University of Twente and BMS Lab logos
+belong to their owners and are not covered by this project's licences.

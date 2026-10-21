@@ -214,8 +214,14 @@ try {
   // Find & replace across every line.
   await page.keyboard.press("Control+f");
   await page.fill("#find-text", "EDITEDMARK");
-  assert.match(await page.textContent("#find-count"), /^1 match/);
+  assert.match(await page.textContent("#find-count"), /^1 of 1/);
+  assert.equal(await page.locator(".seg-marks mark.current").count(), 1, "the match is not highlighted");
   await page.fill("#replace-text", "REPLACEDMARK");
+  await page.click("#replace-one");
+  assert.ok((await editorText(page)).includes("REPLACEDMARK"), "replace did not change the text");
+  assert.match(await page.textContent("#find-count"), /^No matches/);
+  await page.click("#undo");
+  assert.match(await page.textContent("#find-count"), /^1 of 1/);
   await page.click("#replace-all");
   assert.ok((await editorText(page)).includes("REPLACEDMARK"), "replace all did not change the text");
 
@@ -227,14 +233,12 @@ try {
 
   // Same file again with Accurate (medium on the CPU), to exercise
   // the model-swap path in engines/whisper-worker.js (ensureModel only
-  // reloads when the URL actually changes from the default). The model
-  // picker lives in the Settings dialog. It's queued twice and the second
-  // copy removed while it waits, which must leave three jobs.
-  await page.click("#settings-open");
-  await page.selectOption("#model", "medium");
-  await page.click("#settings-dialog .settings-actions .btn");
+  // reloads when the URL actually changes from the default). The first
+  // copy picks Accurate in its own row; the second keeps the default and
+  // is removed while it waits, which must leave three jobs.
   const singleFile = path.join(fixtures, expected.singleSpeaker.file);
   await page.setInputFiles("#file-input", [singleFile, singleFile]);
+  await page.selectOption(".staged:nth-child(1) .staged-model", "medium");
   await page.click("#start");
   await page.click(".job:nth-child(4) .job-remove");
   const accurateStart = Date.now();

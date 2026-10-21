@@ -231,7 +231,7 @@ try {
   // copy removed while it waits, which must leave three jobs.
   await page.click("#settings-open");
   await page.selectOption("#model", "medium");
-  await page.click("#settings-dialog .btn");
+  await page.click("#settings-dialog .settings-actions .btn");
   const singleFile = path.join(fixtures, expected.singleSpeaker.file);
   await page.setInputFiles("#file-input", [singleFile, singleFile]);
   await page.click(".job:nth-child(4) .job-remove");

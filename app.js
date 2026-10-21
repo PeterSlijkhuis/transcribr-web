@@ -1044,15 +1044,6 @@ for (const el of [findText, findCase]) {
   });
 }
 
-// Esc closes find from its own boxes too (a search box would otherwise
-// just clear itself).
-findBar.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape") return;
-  e.preventDefault();
-  e.stopPropagation();
-  showFind(false);
-});
-
 findText.addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
   e.preventDefault();

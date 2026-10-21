@@ -6,7 +6,7 @@
 // diarize in the sherpa worker while transcribing in the whisper worker,
 // merge here.
 import { assignSpeakers } from "./merge.js";
-import { speakerCount, fmtClock, renameSpeakers, timeLeft } from "./shared.js";
+import { speakerCount, fmtClock, renameSpeakers, timeLeft, estimate } from "./shared.js";
 import { downloadCsv } from "./export/csv.js";
 import { downloadJson } from "./export/json.js";
 import { downloadSrt } from "./export/srt.js";
@@ -243,7 +243,9 @@ function gpuPref() {
 
 async function detectGpu() {
   try {
-    const a = navigator.gpu && (await navigator.gpu.requestAdapter({ powerPreference: gpuPref() }));
+    // Some systems answer a power preference with no adapter at all while a
+    // plain request still gets one, so ask again without it.
+    const a = navigator.gpu && ((await navigator.gpu.requestAdapter({ powerPreference: gpuPref() })) || (await navigator.gpu.requestAdapter()));
     hardware.gpu = Boolean(a) && !(a.isFallbackAdapter || (a.info && a.info.isFallbackAdapter));
     const info = (a && a.info) || {};
     hardware.gpuName = info.description || [info.vendor, info.architecture].filter(Boolean).join(" ");
@@ -284,6 +286,28 @@ function asrEngine() {
   return useGpu(selectedModel()) ? gpu : whisper;
 }
 
+// Seconds of audio handled per second, for the estimate shown before a file
+// starts. ponytail: starting guesses from one tested laptop and the CI runs;
+// each finished file replaces them with what this device actually did.
+const DEFAULT_SPEED = { "tiny:cpu": 4, "tiny:gpu": 10, "small:cpu": 1, "small:gpu": 5, "medium:cpu": 0.7, "medium:gpu": 3, diar: 2 };
+
+function speed(key) {
+  return Number(savedSetting(`speed:${key}`)) || DEFAULT_SPEED[key];
+}
+
+function saveSpeed(key, audioSec, workSec) {
+  if (workSec < 1) return;
+  try { localStorage.setItem(`speed:${key}`, (audioSec / workSec).toFixed(2)); } catch (e) {}
+}
+
+function updateEstimate(li) {
+  if (!manifest || !li.durationSec) return;
+  const model = selectedModel();
+  const onGpu = useGpu(model, li.querySelector(".staged-translate").checked);
+  li.querySelector(".staged-estimate").textContent =
+    `Takes ${estimate(li.durationSec, speed(`${model.id}:${onGpu ? "gpu" : "cpu"}`), speed("diar"))} with ${model.label.split(" (")[0]} on the ${onGpu ? "graphics card" : "processor"}`;
+}
+
 function describeHardware() {
   const parts = [`${hardware.cores} CPU cores`];
   if (hardware.memoryGb) parts.push(`${hardware.memoryGb}${hardware.memoryGb >= 8 ? "+" : ""} GB memory`);
@@ -305,10 +329,11 @@ function updateModelHint() {
     ? `In use: ${hardware.gpuName || "a graphics card the browser doesn't name"}. If that's the wrong one, set your browser to "High performance" in Windows Settings > System > Display > Graphics.`
     : "No usable graphics card in this browser.";
   engineHint.textContent = !hardware.gpu
-    ? "This browser has no usable GPU (WebGPU), so everything runs on the processor. A recent Chrome or Edge may have one."
+    ? "This browser has no usable GPU (WebGPU), so everything runs on the processor. A recent Chrome or Edge may have one. If it worked before, restart the browser: after a graphics card problem, Chrome switches it off for a site until then."
     : selectedModel().onnx
       ? "The graphics card was about 3x faster on a tested laptop. Its first run downloads a separate copy of the model."
       : "This model has no GPU version, so it runs on the processor.";
+  for (const li of document.querySelectorAll(".staged")) updateEstimate(li);
 }
 
 // The model choice is remembered per browser, like the theme.
@@ -1010,10 +1035,8 @@ function askLongRecording(job) {
 async function processJob(job) {
   job.status = "processing";
   job.el.dataset.status = "processing";
-  // File options are read once, here, so a file uses what was set when it started.
-  const language = languageInput.value || "auto";
-  const numSpeakers = Math.min(20, Math.max(0, parseInt(numSpeakersInput.value, 10) || 0));
-  job.translate = translateInput.checked;
+  const { language, numSpeakers } = job.opts;
+  job.translate = job.opts.translate;
   const jobStart = performance.now();
 
   startEstimatedProgress(job, "Decoding audio", 1500);
@@ -1055,12 +1078,15 @@ async function processJob(job) {
   let diarFraction = 0;
   let diarStage = "Detecting speakers, transcribes next";
   let showDiar = true;
-  const diarizing = diarizer.load(manifest).then(() =>
-    diarizer.request({ type: "diarize", samples: diarSamples, numSpeakers }, [diarSamples.buffer], (p) => {
+  const diarizing = diarizer.load(manifest).then(async () => {
+    const start = performance.now();
+    const result = await diarizer.request({ type: "diarize", samples: diarSamples, numSpeakers }, [diarSamples.buffer], (p) => {
       diarFraction = p.fraction;
       if (showDiar) setStatus(job, diarStage, diarFraction);
-    })
-  );
+    });
+    saveSpeed("diar", durationSec, (performance.now() - start) / 1000);
+    return result;
+  });
   diarizing.catch(() => {}); // awaited below; don't report it as unhandled meanwhile
 
   const transcribe = async () => {
@@ -1099,12 +1125,14 @@ async function processJob(job) {
     if (onGpu) arm();
     setGameAllowed(!onGpu);
     try {
-      return await engine.request(
+      const result = await engine.request(
         { type: "transcribe", samples, language, translate: job.translate, modelUrl: onGpu ? model.onnx : model.url, dtype: model.onnxDtype },
         // Keep a copy while on the GPU, in case it fails and the CPU retries.
         onGpu ? [] : [samples.buffer],
         onProgress
       );
+      if (transcribeStart) saveSpeed(`${model.id}:${onGpu ? "gpu" : "cpu"}`, durationSec, (performance.now() - transcribeStart) / 1000);
+      return result;
     } finally {
       clearTimeout(watchdog);
       setGameAllowed(true);
@@ -1194,7 +1222,7 @@ function removeJob(job) {
   job.el.remove();
 }
 
-function addJob(file) {
+function addJob(file, opts) {
   const li = document.createElement("li");
   li.className = "job";
   li.innerHTML = `
@@ -1210,7 +1238,7 @@ function addJob(file) {
   `;
   li.querySelector(".job-name").textContent = file.name;
   jobList.appendChild(li);
-  const job = { name: file.name, file, el: li, rows: [], names: {}, extraSpeakers: [], durationSec: 0, undo: [] };
+  const job = { name: file.name, file, opts, el: li, rows: [], names: {}, extraSpeakers: [], durationSec: 0, undo: [] };
   li.job = job;
   li.querySelector(".job-remove").setAttribute("aria-label", `Remove ${file.name}`);
   li.querySelector(".job-remove").onclick = () => removeJob(job);
@@ -1225,25 +1253,77 @@ function setCollapsed(el, collapsed) {
   el.toggleAttribute("inert", collapsed);
 }
 
-// Folding the Settings panel once files start queuing keeps the page from
-// growing top-heavy without gating anything -- it stays one click away and
-// settings still apply live to whatever's picked when each job starts.
-let settingsAutoFolded = false;
+// Added files wait in step 1, each with its own speakers, language and
+// translate choice (starting from the values above the list), until Start.
+const stagedBox = document.getElementById("staged");
+const stagedList = document.getElementById("staged-list");
+const startButton = document.getElementById("start");
 
-function foldPanel(controlsId) {
-  const toggle = document.querySelector(`.panel-toggle[aria-controls="${controlsId}"]`);
-  toggle.setAttribute("aria-expanded", "false");
-  setCollapsed(document.getElementById(controlsId), true);
+function updateStaged() {
+  const n = stagedList.children.length;
+  stagedBox.hidden = !n;
+  startButton.textContent = `Start transcribing ${n} file${n === 1 ? "" : "s"}`;
 }
+
+function stageFile(file) {
+  const li = document.createElement("li");
+  li.className = "staged";
+  li.innerHTML = `
+    <div class="staged-name"><strong></strong><span class="hint"></span><span class="hint staged-estimate"></span></div>
+    <label class="staged-field">Speakers <input type="number" class="staged-speakers" min="0" max="20" /></label>
+    <label class="staged-field">Language </label>
+    <label class="checkbox-label"><input type="checkbox" class="staged-translate" /> Translate</label>
+    <button type="button" class="btn btn-sm btn-ghost">Remove</button>
+  `;
+  li.querySelector("strong").textContent = file.name;
+  const info = li.querySelector(".hint");
+  info.textContent = `${mb(file.size).toLocaleString()} MB`;
+  // The length, when the browser can read it without decoding everything.
+  const media = document.createElement("audio");
+  media.preload = "metadata";
+  media.src = URL.createObjectURL(file);
+  media.onloadedmetadata = () => {
+    if (Number.isFinite(media.duration)) {
+      info.textContent = `${fmtClock(media.duration)} · ${info.textContent}`;
+      li.durationSec = media.duration;
+      updateEstimate(li);
+    }
+    URL.revokeObjectURL(media.src);
+  };
+  media.onerror = () => URL.revokeObjectURL(media.src);
+  li.querySelector(".staged-speakers").value = numSpeakersInput.value;
+  const language = languageInput.cloneNode(true);
+  language.removeAttribute("id");
+  language.className = "staged-language";
+  language.value = languageInput.value;
+  li.querySelectorAll(".staged-field")[1].appendChild(language);
+  li.querySelector(".staged-translate").checked = translateInput.checked;
+  li.querySelector(".staged-translate").onchange = () => updateEstimate(li);
+  li.querySelector("button").setAttribute("aria-label", `Remove ${file.name}`);
+  li.querySelector("button").onclick = () => {
+    li.remove();
+    updateStaged();
+  };
+  li.file = file;
+  stagedList.appendChild(li);
+}
+
+startButton.addEventListener("click", () => {
+  for (const li of [...stagedList.children]) {
+    addJob(li.file, {
+      numSpeakers: Math.min(20, Math.max(0, parseInt(li.querySelector(".staged-speakers").value, 10) || 0)),
+      language: li.querySelector(".staged-language").value || "auto",
+      translate: li.querySelector(".staged-translate").checked,
+    });
+    li.remove();
+  }
+  updateStaged();
+});
 
 function queueFiles(fileList) {
   if (fileInput.disabled) return;
-  const files = Array.from(fileList);
-  for (const file of files) addJob(file);
-  if (!settingsAutoFolded && files.length) {
-    settingsAutoFolded = true;
-    foldPanel("settings-body");
-  }
+  for (const file of fileList) stageFile(file);
+  updateStaged();
 }
 
 fileInput.addEventListener("change", () => {

@@ -6,7 +6,7 @@
 // Same protocol as whisper-worker.js, except modelUrl is an ONNX repo id
 // (manifest whisper.models[].onnx), an optional dtype rides along, and
 // there is no per-segment progress.
-import { pipeline } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.min.js";
+import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.min.js";
 
 let asr = null;
 let repo = null;
@@ -73,9 +73,15 @@ self.onmessage = async (ev) => {
   const msg = ev.data;
   try {
     if (msg.type === "load") {
-      const adapter = navigator.gpu && (await navigator.gpu.requestAdapter());
+      // With a built-in and a dedicated card, the browser picks one by this
+      // preference. The model then runs on this exact adapter, so the card
+      // checked here is the card that does the work.
+      const powerPreference = msg.powerPreference || "high-performance";
+      const adapter = navigator.gpu && (await navigator.gpu.requestAdapter({ powerPreference }));
       if (!adapter) throw new Error("this browser has no usable GPU (WebGPU)");
       f16 = adapter.features.has("shader-f16");
+      env.backends.onnx.webgpu.powerPreference = powerPreference;
+      env.backends.onnx.webgpu.adapter = adapter;
       self.postMessage({ type: "loaded" });
     } else if (msg.type === "transcribe") {
       self.postMessage({ type: "result", segments: await transcribe(msg.samples, msg.language, msg.translate, msg.modelUrl, msg.dtype) });

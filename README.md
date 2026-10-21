@@ -45,7 +45,7 @@ are compiled to WebAssembly and run on your own CPU, inside the browser tab.
 | ▶️ **Listen along** | Built-in player; click any timestamp to play from there, and the line being played is highlighted |
 | ✏️ **Editing** | Rename speakers, reassign a sentence, fix wording, split or merge lines, find & replace |
 | 📄 **Export** | CSV, JSON, SRT subtitles and Word (DOCX) |
-| 📦 **Batch queue** | Drop several files at once; they run one after another |
+| 📦 **Batch queue** | Drop several files at once; on a graphics card the next files detect speakers while one transcribes |
 | 🔒 **Private** | No backend, no analytics, no upload |
 | ⚡ **Cached** | Engines download once, then load from the browser cache |
 
@@ -235,7 +235,14 @@ with the ONNX exports of the same models), so it needs a recent Chrome or
 Edge. On one tested laptop, Standard went from 1.9x to 5.4x faster than real
 time. The first GPU run downloads its own copy of the model. CUDA and ROCm
 can't be used from a web page; WebGPU is the browser's route to the GPU.
-Speaker detection still runs on the CPU.
+Speaker detection still runs on the CPU, so on the graphics card the app
+detects speakers for up to three files at once while one transcribes.
+
+With both built-in and separate graphics, **Graphics card** in Settings asks
+the browser for the fastest or the power-saving one and shows which it got.
+A web page can't list the cards or pick one by name, so if the wrong one is
+used, set your browser to "High performance" in Windows Settings > System >
+Display > Graphics.
 </details>
 
 <details>

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { fmtClock, toTurns, speakerCount, renameSpeakers } from "../shared.js";
+import { fmtClock, toTurns, speakerCount, renameSpeakers, timeLeft } from "../shared.js";
 
 test("fmtClock formats mm:ss", () => {
   assert.equal(fmtClock(65), "01:05");
@@ -35,4 +35,11 @@ test("renameSpeakers maps labels, keeps blanks, and lets toTurns merge speakers 
   assert.deepEqual(renamed.map((r) => r.speaker_id), ["Interviewer", "Speaker 2", "Speaker 2"]);
   assert.equal(rows[0].speaker_id, "Speaker 1"); // input untouched
   assert.equal(toTurns(renamed).length, 2);
+});
+
+test("timeLeft extrapolates from the pace so far", () => {
+  assert.equal(timeLeft(2, 0.5), "");
+  assert.equal(timeLeft(60, 0.02), "");
+  assert.equal(timeLeft(60, 0.25), "about 3 min left");
+  assert.equal(timeLeft(30, 0.9), "under a minute left");
 });

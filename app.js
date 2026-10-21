@@ -6,7 +6,7 @@
 // diarize in the sherpa worker while transcribing in the whisper worker,
 // merge here.
 import { assignSpeakers } from "./merge.js";
-import { speakerCount, fmtClock, renameSpeakers } from "./shared.js";
+import { speakerCount, fmtClock, renameSpeakers, timeLeft } from "./shared.js";
 import { downloadCsv } from "./export/csv.js";
 import { downloadJson } from "./export/json.js";
 import { downloadSrt } from "./export/srt.js";
@@ -35,6 +35,8 @@ const modelSelect = document.getElementById("model");
 const modelHint = document.getElementById("model-hint");
 const engineSelect = document.getElementById("engine");
 const engineHint = document.getElementById("engine-hint");
+const gpuPrefSelect = document.getElementById("gpu-pref");
+const gpuPrefHint = document.getElementById("gpu-pref-hint");
 const translateInput = document.getElementById("translate");
 
 // Language names in the visitor's own language, sorted; the code is the
@@ -75,7 +77,7 @@ function checkCompat() {
     simd = WebAssembly.validate(SIMD_PROBE);
   } catch (e) {}
   if (!simd) {
-    showCompatError("This browser can't run transcribr-web (no WebAssembly SIMD). Use a current desktop Chrome, Edge, Firefox or Safari.");
+    showCompatError("This browser can't run Transcribr (no WebAssembly SIMD). Use a current desktop Chrome, Edge, Firefox or Safari.");
     disablePicker("Unsupported browser, see the message above.");
     return false;
   }
@@ -85,7 +87,7 @@ function checkCompat() {
     disablePicker("Setting up, the page may reload once...");
     setTimeout(() => {
       showCompatError(
-        "This browser can't run transcribr-web (no cross-origin isolation / SharedArrayBuffer). " +
+        "This browser can't run Transcribr (no cross-origin isolation / SharedArrayBuffer). " +
           "Use a current desktop Chrome, Edge, Firefox or Safari, and make sure the page isn't opened from a file:// path."
       );
       disablePicker("Unsupported browser, see the message above.");
@@ -151,10 +153,10 @@ class Engine {
     });
   }
 
-  load(manifest, onProgress) {
+  load(manifest, onProgress, extra = {}) {
     if (!this.loading) {
       this.spawn();
-      this.loading = this.request({ type: "load", manifest, version: manifest.version }, [], onProgress).catch((err) => {
+      this.loading = this.request({ type: "load", manifest, version: manifest.version, ...extra }, [], onProgress).catch((err) => {
         this.crash(err);
         throw err;
       });
@@ -177,6 +179,25 @@ async function pruneOldEngineCaches(version) {
       if (name.startsWith(ENGINE_CACHE_PREFIX) && name !== ENGINE_CACHE_PREFIX + version) await caches.delete(name);
     }
   } catch (e) {}
+}
+
+// The engine and GPU model downloads (Transformers.js keeps its own cache).
+// The site shares its origin with other github.io pages of the same
+// account, so only these caches are counted or deleted, never all of them.
+function isOurCache(name) {
+  return name.startsWith(ENGINE_CACHE_PREFIX) || name === "transformers-cache";
+}
+
+async function cachedBytes() {
+  let total = 0;
+  for (const name of (await caches.keys()).filter(isOurCache)) {
+    const cache = await caches.open(name);
+    for (const req of await cache.keys()) {
+      const res = await cache.match(req);
+      total += Number(res.headers.get("content-length")) || (await res.blob()).size;
+    }
+  }
+  return total;
 }
 
 function mb(bytes) {
@@ -214,12 +235,21 @@ const hardware = {
   memoryGb: navigator.deviceMemory, // Chrome/Edge only, capped at 8
   gpu: false,
 };
-const hardwareReady = (async () => {
+// With a built-in and a dedicated card, the browser picks one by this
+// preference; pages can't list cards or choose one by name.
+function gpuPref() {
+  return savedSetting("gpuPref") === "low-power" ? "low-power" : "high-performance";
+}
+
+async function detectGpu() {
   try {
-    const a = navigator.gpu && (await navigator.gpu.requestAdapter());
+    const a = navigator.gpu && (await navigator.gpu.requestAdapter({ powerPreference: gpuPref() }));
     hardware.gpu = Boolean(a) && !(a.isFallbackAdapter || (a.info && a.info.isFallbackAdapter));
+    const info = (a && a.info) || {};
+    hardware.gpuName = info.description || [info.vendor, info.architecture].filter(Boolean).join(" ");
   } catch (e) {}
-})();
+}
+const hardwareReady = detectGpu();
 // How long the GPU worker may stay silent while downloading or preparing a
 // model before it's treated as hung. ponytail: fixed guess; first-run shader
 // compiles on slow GPUs could exceed it, tune if real users trip it.
@@ -271,6 +301,9 @@ function updateModelHint() {
       : useGpu(model)
         ? `Runs on the graphics card (${model.onnx.split("/")[1]}).`
         : `Runs on the processor. Recommended hardware: ${model.hardware}`;
+  gpuPrefHint.textContent = hardware.gpu
+    ? `In use: ${hardware.gpuName || "a graphics card the browser doesn't name"}. If that's the wrong one, set your browser to "High performance" in Windows Settings > System > Display > Graphics.`
+    : "No usable graphics card in this browser.";
   engineHint.textContent = !hardware.gpu
     ? "This browser has no usable GPU (WebGPU), so everything runs on the processor. A recent Chrome or Edge may have one."
     : selectedModel().onnx
@@ -302,9 +335,18 @@ async function fillModelPicker(m) {
     }
   }
   await hardwareReady;
+  gpuPrefSelect.value = gpuPref();
   engineSelect.querySelector('option[value="gpu"]').disabled = !hardware.gpu;
   if (!hardware.gpu && engineSelect.value === "gpu") engineSelect.value = "auto";
   updateModelHint();
+}
+
+// Loads the GPU engine on the preferred card. A worker started for the other
+// card is replaced; the caller holds the transcription turn, so it's idle.
+function loadGpu(onProgress) {
+  if (gpu.loading && gpu.pref !== gpuPref() && !gpu.pending) gpu.crash(new Error("graphics card preference changed"));
+  if (!gpu.loading) gpu.pref = gpuPref();
+  return gpu.load(manifest, onProgress, { powerPreference: gpu.pref });
 }
 
 // If the GPU engine won't start (driver trouble, blocked WebGPU), fall back
@@ -312,7 +354,7 @@ async function fillModelPicker(m) {
 async function loadAsr(asr, onProgress) {
   if (asr !== gpu) return whisper.load(manifest, onProgress);
   try {
-    await gpu.load(manifest, onProgress);
+    await loadGpu(onProgress);
   } catch (err) {
     console.warn("GPU engine failed, using the CPU:", err);
     gpuFailed = true;
@@ -354,7 +396,36 @@ async function ensureEngines(job) {
 // ---- Jobs ----------------------------------------------------------------
 
 const queue = [];
-let running = false;
+let active = 0;
+
+// Speaker detection for several files at once. On the graphics card,
+// transcription leaves the processor nearly idle and speaker detection
+// becomes the slow step, so the next files diarize while one transcribes.
+// On the processor whisper already takes all but one core, so it stays
+// one file at a time. Each extra file costs a few hundred MB of memory.
+const MAX_PARALLEL_FILES = 3;
+const diarizers = [sherpa];
+
+function parallelFiles() {
+  if (!manifest || !useGpu(selectedModel())) return 1;
+  return Math.max(1, Math.min(MAX_PARALLEL_FILES, hardware.cores - 2));
+}
+
+function takeDiarizer() {
+  let d = diarizers.find((e) => !e.busy);
+  if (!d) diarizers.push((d = new Engine("engines/sherpa-worker.js", "diarization engine")));
+  d.busy = true;
+  return d;
+}
+
+// Files transcribe one at a time, in the order they get here.
+let asrQueue = Promise.resolve();
+function asrTurn() {
+  let release;
+  const prev = asrQueue;
+  asrQueue = new Promise((r) => (release = r));
+  return prev.then(() => release);
+}
 
 async function decodeFileTo16kMono(file) {
   const arrayBuffer = await file.arrayBuffer();
@@ -416,7 +487,8 @@ function stopEstimatedProgress(job) {
 function updateDoneStatus(job) {
   if (job.status !== "done") return;
   const n = speakerCount(job.rows);
-  setStatus(job, job.rows.length ? `Done: ${n} speaker${n === 1 ? "" : "s"}, ${fmtClock(job.durationSec)} long` : "Done: no speech found");
+  const took = job.tookSec ? `, took ${fmtClock(job.tookSec)}` : "";
+  setStatus(job, job.rows.length ? `Done: ${n} speaker${n === 1 ? "" : "s"}, ${fmtClock(job.durationSec)} long${took}` : "Done: no speech found");
 }
 
 // ---- Downloads -------------------------------------------------------------
@@ -942,6 +1014,7 @@ async function processJob(job) {
   const language = languageInput.value || "auto";
   const numSpeakers = Math.min(20, Math.max(0, parseInt(numSpeakersInput.value, 10) || 0));
   job.translate = translateInput.checked;
+  const jobStart = performance.now();
 
   startEstimatedProgress(job, "Decoding audio", 1500);
   let decoded;
@@ -969,17 +1042,25 @@ async function processJob(job) {
   setStatus(job, "Loading engines");
   await ensureEngines(job);
   if (job.cancelled) return;
+  runQueue(); // the engines and this device are known now: start more files if it pays
 
   // Speaker detection runs alongside transcription: neither needs the
   // other's output, and whisper leaves one core free (or runs on the GPU).
-  // Posted as a copy, before whisper takes the samples.
-  // Its progress shows once transcription is done; until then it's only kept.
+  // It gets its own copy, since whisper takes the samples.
+  // Its progress shows while the file waits for its turn to transcribe and
+  // after transcription; during transcription it's only kept.
+  const diarizer = takeDiarizer();
+  job.diarizer = diarizer;
+  const diarSamples = samples.slice();
   let diarFraction = 0;
-  let showDiar = false;
-  const diarizing = sherpa.request({ type: "diarize", samples, numSpeakers }, [], (p) => {
-    diarFraction = p.fraction;
-    if (showDiar) setStatus(job, "Detecting speakers", diarFraction);
-  });
+  let diarStage = "Detecting speakers, transcribes next";
+  let showDiar = true;
+  const diarizing = diarizer.load(manifest).then(() =>
+    diarizer.request({ type: "diarize", samples: diarSamples, numSpeakers }, [diarSamples.buffer], (p) => {
+      diarFraction = p.fraction;
+      if (showDiar) setStatus(job, diarStage, diarFraction);
+    })
+  );
   diarizing.catch(() => {}); // awaited below; don't report it as unhandled meanwhile
 
   const transcribe = async () => {
@@ -988,6 +1069,7 @@ async function processJob(job) {
     const engine = onGpu ? gpu : whisper;
     job.model = onGpu ? `${model.onnx} (GPU)` : model.name;
     setStatus(job, "Transcribing");
+    let transcribeStart = null;
     // Preparing a model on some GPUs never finishes and never errors. If
     // the GPU worker goes quiet before transcription starts, kill it so the
     // CPU fallback below takes over.
@@ -1003,15 +1085,19 @@ async function processJob(job) {
       } else if (p.preparing) {
         setStatus(job, "Preparing the model on the graphics card");
       } else if (p.started) {
+        transcribeStart = performance.now();
         setStatus(job, "Transcribing");
       } else {
-        setStatus(job, "Transcribing", p.fraction);
+        transcribeStart ??= performance.now();
+        const left = timeLeft((performance.now() - transcribeStart) / 1000, p.fraction);
+        setStatus(job, left ? `Transcribing, ${left}` : "Transcribing", p.fraction);
       }
     };
     // Settings can change after ensureEngines, so this engine may not be
     // the one it loaded. load() is a no-op if it is.
-    await engine.load(manifest, onProgress);
+    await (onGpu ? loadGpu(onProgress) : engine.load(manifest, onProgress));
     if (onGpu) arm();
+    setGameAllowed(!onGpu);
     try {
       return await engine.request(
         { type: "transcribe", samples, language, translate: job.translate, modelUrl: onGpu ? model.onnx : model.url, dtype: model.onnxDtype },
@@ -1021,48 +1107,66 @@ async function processJob(job) {
       );
     } finally {
       clearTimeout(watchdog);
+      setGameAllowed(true);
     }
   };
-  let tr;
+
   try {
+    setStatus(job, diarStage);
+    const release = await asrTurn();
+    job.asrHeld = true;
+    let tr;
     try {
-      tr = await transcribe();
-    } catch (err) {
-      // A GPU that loaded but can't run the model (out of graphics memory,
-      // a driver bug): finish this file on the CPU and stay there.
-      if (job.cancelled || !job.model.endsWith("(GPU)") || engineSelect.value === "gpu") throw err;
-      console.warn("GPU transcription failed, retrying on the CPU:", err);
-      gpuFailed = true;
-      updateModelHint();
-      tr = await transcribe();
+      if (job.cancelled) return;
+      showDiar = false;
+      try {
+        tr = await transcribe();
+      } catch (err) {
+        // A GPU that loaded but can't run the model (out of graphics memory,
+        // a driver bug): finish this file on the CPU and stay there.
+        if (job.cancelled || !job.model.endsWith("(GPU)") || engineSelect.value === "gpu") throw err;
+        console.warn("GPU transcription failed, retrying on the CPU:", err);
+        gpuFailed = true;
+        updateModelHint();
+        tr = await transcribe();
+      }
+    } finally {
+      job.asrHeld = false;
+      release();
     }
-  } catch (err) {
-    // Let the diarization worker finish before the next file uses it.
+
+    showDiar = true;
+    diarStage = "Detecting speakers";
+    setStatus(job, diarStage, diarFraction);
+    const diar = await diarizing;
+    const dsegs = diar.segments.map((s) => ({ s: s.start, e: s.end, spk: s.speaker }));
+
+    job.rows = assignSpeakers(tr.segments, dsegs);
+    job.tookSec = (performance.now() - jobStart) / 1000;
+    finishJob(job);
+  } finally {
+    // Let the diarization worker finish before another file uses it.
     await diarizing.catch(() => {});
-    throw err;
+    diarizer.busy = false;
+    job.diarizer = null;
   }
-
-  showDiar = true;
-  setStatus(job, "Detecting speakers", diarFraction);
-  const diar = await diarizing;
-  const dsegs = diar.segments.map((s) => ({ s: s.start, e: s.end, spk: s.speaker }));
-
-  job.rows = assignSpeakers(tr.segments, dsegs);
-  finishJob(job);
 }
 
-async function runQueue() {
-  if (running) return;
-  running = true;
-  while (queue.length) {
+function runQueue() {
+  while (queue.length && active < parallelFiles()) {
     const job = queue.shift();
-    try {
-      await processJob(job);
-    } catch (err) {
-      if (!job.cancelled) failJob(job, String((err && err.message) || err));
-    }
+    active++;
+    processJob(job)
+      .catch((err) => {
+        if (!job.cancelled) failJob(job, String((err && err.message) || err));
+      })
+      .finally(() => {
+        active--;
+        // Extra speaker workers hold their models in memory; drop them when idle.
+        if (!active && !queue.length) for (const d of diarizers.splice(1)) d.crash(new Error("idle"));
+        runQueue();
+      });
   }
-  running = false;
 }
 
 function enqueue(job) {
@@ -1074,15 +1178,16 @@ function enqueue(job) {
 }
 
 // Removing a running file stops it: a worker can't be interrupted mid-call,
-// so the engines are thrown away and the next file reloads them (from the
-// cache, so in seconds).
+// so the engines it is using are thrown away and the next file reloads them
+// (from the cache, so in seconds). Other files keep theirs.
 function removeJob(job) {
   const i = queue.indexOf(job);
   if (i >= 0) queue.splice(i, 1);
   if (job.status === "processing") {
     job.cancelled = true;
     if (job.skipLong) job.skipLong();
-    for (const engine of [sherpa, whisper, gpu]) engine.crash(new Error("cancelled"));
+    if (job.diarizer) job.diarizer.crash(new Error("cancelled"));
+    if (job.asrHeld) for (const engine of [whisper, gpu]) engine.crash(new Error("cancelled"));
   }
   stopEstimatedProgress(job);
   if (job.url) URL.revokeObjectURL(job.url);
@@ -1106,6 +1211,7 @@ function addJob(file) {
   li.querySelector(".job-name").textContent = file.name;
   jobList.appendChild(li);
   const job = { name: file.name, file, el: li, rows: [], names: {}, extraSpeakers: [], durationSec: 0, undo: [] };
+  li.job = job;
   li.querySelector(".job-remove").setAttribute("aria-label", `Remove ${file.name}`);
   li.querySelector(".job-remove").onclick = () => removeJob(job);
   enqueue(job);
@@ -1174,6 +1280,52 @@ document.getElementById("settings-open").addEventListener("click", () => {
   settingsBadge.hidden = true;
   try { localStorage.setItem("settingsSeen", "1"); } catch (e) {}
   settingsDialog.showModal();
+  showCacheSize();
+});
+
+const cacheSize = document.getElementById("cache-size");
+const cacheClear = document.getElementById("cache-clear");
+async function showCacheSize() {
+  // Deleting mid-run would only make the running file download again.
+  cacheClear.disabled = active > 0;
+  try {
+    const bytes = await cachedBytes();
+    cacheSize.textContent = bytes ? `${mb(bytes).toLocaleString()} MB stored in this browser.` : "Nothing stored.";
+    if (!bytes) cacheClear.disabled = true;
+  } catch (e) {
+    cacheSize.textContent = "This browser doesn't keep downloads (private window?).";
+    cacheClear.disabled = true;
+  }
+}
+cacheClear.addEventListener("click", async () => {
+  try {
+    for (const name of (await caches.keys()).filter(isOurCache)) await caches.delete(name);
+  } catch (e) {}
+  showCacheSize();
+});
+
+const clearDone = document.getElementById("clear-done");
+const FINISHED = ["done", "skipped", "error"];
+function finishedJobs() {
+  return [...jobList.querySelectorAll(".job")].map((li) => li.job).filter((job) => job && FINISHED.includes(job.el.dataset.status));
+}
+function updateClearDone() {
+  clearDone.hidden = !finishedJobs().length;
+}
+clearDone.addEventListener("click", () => {
+  const jobs = finishedJobs();
+  const n = jobs.length;
+  if (!confirm(`Remove ${n} finished file${n === 1 ? "" : "s"}? Their transcripts are gone for good unless you downloaded them.`)) return;
+  for (const job of jobs) removeJob(job);
+  updateClearDone();
+});
+new MutationObserver(updateClearDone).observe(jobList, { subtree: true, attributes: true, attributeFilter: ["data-status"], childList: true });
+
+// Everything lives in this tab, so ask before it closes with files in it.
+window.addEventListener("beforeunload", (e) => {
+  if (!jobList.querySelector(".job")) return;
+  e.preventDefault();
+  e.returnValue = "";
 });
 themeSelect.addEventListener("change", () => setTheme(themeSelect.value));
 
@@ -1194,6 +1346,13 @@ gameToggle.addEventListener("click", () => {
   }
 });
 
+// The graphics card can't draw the game smoothly while it transcribes, so
+// the game closes and its button hides until the file is done.
+function setGameAllowed(allowed) {
+  if (!allowed && stopGame) gameToggle.click();
+  gameToggle.hidden = !allowed;
+}
+
 if (checkCompat()) {
   engineBanner.hidden = false;
   engineStatus.textContent =
@@ -1202,3 +1361,8 @@ if (checkCompat()) {
 loadManifest().then(fillModelPicker).catch(() => {}); // ensureEngines retries and reports
 
 translateInput.addEventListener("change", updateModelHint);
+gpuPrefSelect.addEventListener("change", async () => {
+  try { localStorage.setItem("gpuPref", gpuPrefSelect.value); } catch (e) {}
+  await detectGpu();
+  updateModelHint();
+});

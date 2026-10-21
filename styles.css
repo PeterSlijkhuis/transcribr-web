@@ -307,7 +307,7 @@ progress::-moz-progress-bar {
   padding-left: 1.35rem;
 }
 .panel > .hint,
-.dropzone + .hint {
+.options + .hint {
   margin-top: 0.6rem;
 }
 
@@ -1147,3 +1147,40 @@ input[type="checkbox"] {
 }
 .credits-partners img { display: block; width: auto; }
 :root[data-theme="dark"] .credits-partners img { filter: invert(1) hue-rotate(180deg); }
+
+/* ---- Files waiting to start ------------------------------------------- */
+#staged { margin-top: 1.25rem; }
+#staged-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.staged {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.staged-name { flex: 1 1 14rem; min-width: 0; display: flex; flex-direction: column; }
+.staged-name strong { overflow-wrap: anywhere; }
+.staged-name .hint { margin: 0; }
+.staged-field { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; font-weight: 650; color: var(--ink-2); }
+.staged-field input,
+.staged-field select {
+  font: inherit;
+  font-weight: 400;
+  padding: 0.3rem 0.5rem;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.staged-field input { width: 4rem; }
+.staged-field select { max-width: 11rem; }

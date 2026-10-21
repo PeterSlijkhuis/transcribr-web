@@ -46,11 +46,16 @@
   </div>
 
   <section class="panel">
-    <button type="button" class="step-heading panel-toggle" aria-expanded="true" aria-controls="settings-body">
-      <span class="step-num">1</span>File options<span class="chevron" aria-hidden="true">&#9662;</span>
+    <button type="button" class="step-heading panel-toggle" aria-expanded="true" aria-controls="files-body">
+      <span class="step-num">1</span>Add your files<span class="chevron" aria-hidden="true">&#9662;</span>
     </button>
-    <div id="settings-body" class="panel-body">
+    <div id="files-body" class="panel-body">
       <div class="collapsible-inner">
+      <label id="dropzone" for="file-input" class="dropzone">
+        <input type="file" id="file-input" accept="audio/*,video/*" multiple />
+        <span class="dropzone-icon" aria-hidden="true">&#8593;</span>
+        <span class="dropzone-text"><strong>Drop audio or video files here</strong><br />or click to choose files</span>
+      </label>
       <div id="options" class="options">
         <div class="field">
           <label for="num-speakers">Speakers</label>
@@ -66,29 +71,18 @@
           <label class="checkbox-label"><input type="checkbox" id="translate" /> Translate to English</label>
         </div>
       </div>
+      <p class="hint">These are the starting values for each file you add. Change them per file in the list below before you start. Each file shows a rough time, which gets more accurate once a file has finished on this device. The first run also downloads the model.</p>
+      <div id="staged" hidden>
+        <ul id="staged-list"></ul>
+        <button type="button" id="start" class="btn">Start transcribing</button>
       </div>
-    </div>
-  </section>
-
-  <section class="panel">
-    <button type="button" class="step-heading panel-toggle" aria-expanded="true" aria-controls="files-body">
-      <span class="step-num">2</span>Add your files<span class="chevron" aria-hidden="true">&#9662;</span>
-    </button>
-    <div id="files-body" class="panel-body">
-      <div class="collapsible-inner">
-      <label id="dropzone" for="file-input" class="dropzone">
-        <input type="file" id="file-input" accept="audio/*,video/*" multiple />
-        <span class="dropzone-icon" aria-hidden="true">&#8593;</span>
-        <span class="dropzone-text"><strong>Drop audio or video files here</strong><br />or click to choose files</span>
-      </label>
-      <p class="hint">Options above apply to files as they start processing, so you can still adjust them per file.</p>
       </div>
     </div>
   </section>
 
   <section id="queue-section">
     <button type="button" class="step-heading panel-toggle" aria-expanded="true" aria-controls="queue-body">
-      <span class="step-num">3</span>Queue &amp; results<span class="chevron" aria-hidden="true">&#9662;</span>
+      <span class="step-num">2</span>Queue &amp; results<span class="chevron" aria-hidden="true">&#9662;</span>
     </button>
     <div id="queue-body" class="panel-body">
       <div class="collapsible-inner">

@@ -107,9 +107,10 @@ try {
     path.join(fixtures, expected.twoSpeaker.file),
   ]);
 
-  // Adding files should fold the File options panel out of the way (it's still
-  // reachable, just not auto-folded twice).
-  assert.equal(await page.getAttribute('[aria-controls="settings-body"]', "aria-expanded"), "false", "settings panel did not auto-fold");
+  // Added files wait in a list with their own options until Start.
+  assert.equal(await page.locator("#staged-list .staged").count(), 2, "files were not listed before starting");
+  assert.equal(await page.inputValue("#staged-list .staged-speakers"), String(expected.twoSpeaker.expectedSpeakerCount), "speaker count not carried to the file");
+  await page.click("#start");
 
   await waitForJobs(page, 2);
 
@@ -234,6 +235,7 @@ try {
   await page.click("#settings-dialog .settings-actions .btn");
   const singleFile = path.join(fixtures, expected.singleSpeaker.file);
   await page.setInputFiles("#file-input", [singleFile, singleFile]);
+  await page.click("#start");
   await page.click(".job:nth-child(4) .job-remove");
   const accurateStart = Date.now();
   await waitForJobs(page, 3);

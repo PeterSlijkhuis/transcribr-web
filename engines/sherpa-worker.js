@@ -10,6 +10,13 @@
 //   out {type: "error", error} for either request
 importScripts("fetch-cached.js");
 
+// How far apart two voices must sound to count as different speakers when
+// the count is left on automatic. Larger means fewer speakers. 0.5 (the
+// engine default) split a busy 5-speaker recording into 15-16 speakers.
+// One fixed value for now; tune it against real recordings if it starts
+// merging people who should stay apart.
+const CLUSTER_THRESHOLD = 0.7;
+
 (function () {
   let sd = null;
 
@@ -45,7 +52,7 @@ importScripts("fetch-cached.js");
       // 2026-10-15).
       segmentation: { pyannote: { model: "./segmentation.onnx", windowShiftRatio: 0.25 }, numThreads, debug: 0 },
       embedding: { model: "./embedding.onnx", numThreads, debug: 0 },
-      clustering: { numClusters: -1, threshold: 0.5 },
+      clustering: { numClusters: -1, threshold: CLUSTER_THRESHOLD },
       minDurationOn: 0.3,
       minDurationOff: 0.5,
     });
@@ -84,7 +91,7 @@ importScripts("fetch-cached.js");
 
   function diarize(samples, numSpeakers) {
     const config = sd.config;
-    config.clustering = { numClusters: numSpeakers > 0 ? numSpeakers : -1, threshold: 0.5 };
+    config.clustering = { numClusters: numSpeakers > 0 ? numSpeakers : -1, threshold: CLUSTER_THRESHOLD };
     sd.setConfig(config);
     const t = performance.now();
     const segments = processWithProgress(samples);

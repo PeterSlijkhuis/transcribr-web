@@ -1,6 +1,6 @@
 <div align="center">
 
-# transcribr-web
+# Transcribr
 
 **Transcription and speaker diarization that runs entirely in your browser.**
 No server, no install, no upload. Your audio never leaves your machine.
@@ -45,7 +45,7 @@ are compiled to WebAssembly and run on your own CPU, inside the browser tab.
 | ▶️ **Listen along** | Built-in player; click any timestamp to play from there, and the line being played is highlighted |
 | ✏️ **Editing** | Rename speakers, reassign a sentence, fix wording, split or merge lines, find & replace |
 | 📄 **Export** | CSV, JSON, SRT subtitles and Word (DOCX) |
-| 📦 **Batch queue** | Drop several files at once; they run one after another |
+| 📦 **Batch queue** | Drop several files at once; on a graphics card the next files detect speakers while one transcribes |
 | 🔒 **Private** | No backend, no analytics, no upload |
 | ⚡ **Cached** | Engines download once, then load from the browser cache |
 
@@ -54,7 +54,10 @@ are compiled to WebAssembly and run on your own CPU, inside the browser tab.
 The page walks you through three numbered steps.
 
 **1. File options.** Optionally set the language and the number of
-speakers. Leaving them blank or at 0 means "detect automatically". The
+speakers. Leaving them blank or at 0 means "detect automatically". If you
+know how many people speak, enter it: speaker labels come out much more
+accurate, especially in busy conversations where automatic detection can
+find too many speakers. The
 model and light/dark appearance live under **⚙️ Settings** at the top right,
 and both are remembered in your browser.
 
@@ -79,10 +82,10 @@ there is no separate save step.
 ## Privacy
 
 **Your audio and video files are never uploaded anywhere: not to GitHub,
-not to us, not to anyone.** transcribr-web is a static page with no backend
+not to us, not to anyone.** Transcribr is a static page with no backend
 and no analytics.
 
-You don't have to take that on trust. The app makes exactly three kinds of
+You don't have to take that on trust. The app makes exactly four kinds of
 network request, all one-directional *downloads*, and your files appear in
 none of them:
 
@@ -92,11 +95,20 @@ none of them:
 3. `coi-serviceworker.js` re-issues the page's own requests with extra
    response headers (needed for `SharedArrayBuffer`). It never adds a new
    destination or new data.
+4. On a graphics card only: Transformers.js from jsDelivr and the ONNX
+   Whisper model from Hugging Face, also downloaded once and cached.
 
 Your audio is decoded locally (`AudioContext`) and handed to the engines
 only as in-memory `postMessage` data between your tab and its workers.
 Check it yourself: open DevTools → Network while transcribing, or read
 `app.js` and `engines/*.js`.
+
+The flip side: nothing is saved for you either. Files and transcripts live
+only in the open tab, and closing or reloading it loses them, so download
+what you need first (the page asks before it closes with files in it).
+**Clear finished files** removes done files from the list, and
+**⚙️ Settings → Delete downloads** frees the space the cached engines and
+models take.
 
 ## Choosing a model
 
@@ -178,7 +190,7 @@ see below.
 <details>
 <summary><strong>Is this WhisperX?</strong></summary>
 
-No. WhisperX is a Python pipeline that needs a GPU server. transcribr-web
+No. WhisperX is a Python pipeline that needs a GPU server. Transcribr
 uses the same idea (Whisper for words, a separate diarization model for
 speakers, then a merge by time overlap) but built from
 [whisper.cpp](https://github.com/ggml-org/whisper.cpp) and
@@ -232,7 +244,14 @@ with the ONNX exports of the same models), so it needs a recent Chrome or
 Edge. On one tested laptop, Standard went from 1.9x to 5.4x faster than real
 time. The first GPU run downloads its own copy of the model. CUDA and ROCm
 can't be used from a web page; WebGPU is the browser's route to the GPU.
-Speaker detection still runs on the CPU.
+Speaker detection still runs on the CPU, so on the graphics card the app
+detects speakers for up to three files at once while one transcribes.
+
+With both built-in and separate graphics, **Graphics card** in Settings asks
+the browser for the fastest or the power-saving one and shows which it got.
+A web page can't list the cards or pick one by name, so if the wrong one is
+used, set your browser to "High performance" in Windows Settings > System >
+Display > Graphics.
 </details>
 
 <details>
@@ -353,7 +372,25 @@ See `docs/superpowers/specs/` for the full design.
 
 ## Credits
 
-Built on [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (MIT) and
-[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (Apache-2.0), with
-cross-origin isolation via [coi-serviceworker](https://github.com/gzuidhof/coi-serviceworker)
-(MIT). Full attribution in `NOTICE.md`.
+Transcribr is developed by dr. P.J.H. Slijkhuis at the
+[BMS Lab](https://bmslab.utwente.nl/), [University of Twente](https://www.utwente.nl/en/).
+
+<p>
+  <a href="https://www.utwente.nl/en/"><img src="logos/utwente.png" alt="University of Twente" height="48" /></a>
+  &nbsp;&nbsp;
+  <a href="https://bmslab.utwente.nl/"><img src="logos/bmslab.png" alt="The BMS Lab" height="48" /></a>
+</p>
+
+Built on:
+
+- [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (MIT) running OpenAI's
+  [Whisper](https://github.com/openai/whisper) models (MIT)
+- [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (Apache-2.0) with the
+  pyannote segmentation-3.0 and NeMo TitaNet speaker models
+- [Transformers.js](https://github.com/huggingface/transformers.js) (Apache-2.0)
+  for the graphics card engine
+- [coi-serviceworker](https://github.com/gzuidhof/coi-serviceworker) (MIT) for
+  cross-origin isolation
+
+Full attribution in `NOTICE.md`. The University of Twente and BMS Lab logos
+belong to their owners and are not covered by this project's licences.

@@ -6,7 +6,7 @@
   <meta name="description" content="Transcription and speaker diarization that runs entirely in your browser. No server, no upload, nothing leaves your machine." />
   <meta name="theme-color" content="#f6f7fb" media="(prefers-color-scheme: light)" />
   <meta name="theme-color" content="#0b1120" media="(prefers-color-scheme: dark)" />
-  <title>transcribr-web</title>
+  <title>Transcribr</title>
   <!-- Must load first: makes the page cross-origin-isolated on hosts that
        can't set COOP/COEP headers (GitHub Pages), reloading once if needed. -->
   <script src="coi-serviceworker.js"></script>
@@ -34,7 +34,7 @@
   <header class="hero">
     <button type="button" id="settings-open" class="settings-open" aria-haspopup="dialog" aria-describedby="settings-badge">&#9881;&#65039; Settings<span id="settings-badge" class="settings-badge" hidden><span class="visually-hidden">New: choose a model</span></span></button>
     <p class="hero-eyebrow">&#127897;&#65039; Speech to text, speakers included</p>
-    <h1>transcribr-web</h1>
+    <h1>Transcribr</h1>
     <p class="subtitle">Transcription with speaker detection, entirely in your browser. Nothing you pick leaves your computer. Desktop Chrome, Edge, Firefox or Safari.</p>
     <p class="privacy-badge">&#128274; 100% local: your audio is never uploaded. Only the transcription engine itself (not your files) is downloaded, once, from Hugging Face.</p>
   </header>
@@ -55,7 +55,7 @@
         <div class="field">
           <label for="num-speakers">Speakers</label>
           <input type="number" id="num-speakers" min="0" max="20" value="0" />
-          <p class="hint">0 = detect automatically</p>
+          <p class="hint">0 = detect automatically. Know how many people speak? Enter it for much more accurate speakers.</p>
         </div>
         <div class="field">
           <label for="language">Language</label>
@@ -96,10 +96,21 @@
         <button type="button" id="game-toggle" class="btn btn-sm btn-ghost">&#127918; Play while you wait</button>
         <canvas id="flappy-canvas" width="280" height="360" hidden></canvas>
       </div>
+      <p class="tab-warning">&#9888;&#65039; Your files and transcripts live only in this browser tab. Closing or reloading it loses them, including files still in progress, so download what you need first.</p>
+      <button type="button" id="clear-done" class="btn btn-sm btn-ghost" hidden>Clear finished files</button>
       <ul id="job-list"></ul>
       </div>
     </div>
   </section>
+
+  <footer class="credits">
+    <p>Developed by dr. P.J.H. Slijkhuis at the BMS Lab, University of Twente.</p>
+    <ul class="credits-partners">
+      <li><a href="https://www.utwente.nl/en/" target="_blank" rel="noopener noreferrer"><img src="logos/utwente.png" alt="University of Twente" height="40" /></a></li>
+      <li><a href="https://bmslab.utwente.nl/" target="_blank" rel="noopener noreferrer"><img src="logos/bmslab.png" alt="The BMS Lab" height="40" /></a></li>
+    </ul>
+    <p class="credits-small">Built on <a href="https://github.com/ggml-org/whisper.cpp" target="_blank" rel="noopener noreferrer">whisper.cpp</a> and OpenAI's Whisper models, <a href="https://github.com/k2-fsa/sherpa-onnx" target="_blank" rel="noopener noreferrer">sherpa-onnx</a> with pyannote and NeMo speaker models, <a href="https://github.com/huggingface/transformers.js" target="_blank" rel="noopener noreferrer">Transformers.js</a> and <a href="https://github.com/gzuidhof/coi-serviceworker" target="_blank" rel="noopener noreferrer">coi-serviceworker</a>. The University of Twente and BMS Lab logos belong to their owners.</p>
+  </footer>
 
   <!-- The transcript editor: a full-page view over the file list (Back or
        Esc returns to it). One document per file, always editable. -->
@@ -195,6 +206,14 @@
         <p class="hint" id="engine-hint"></p>
       </div>
       <div class="field">
+        <label for="gpu-pref">Graphics card</label>
+        <select id="gpu-pref">
+          <option value="high-performance">Fastest (the separate card, if there is one)</option>
+          <option value="low-power">Power saving (the built-in one)</option>
+        </select>
+        <p class="hint" id="gpu-pref-hint"></p>
+      </div>
+      <div class="field">
         <label for="theme">Appearance</label>
         <select id="theme">
           <option value="system">Match my system</option>
@@ -203,6 +222,12 @@
         </select>
       </div>
       <p class="hint">Saved in this browser.</p>
+      <div class="field">
+        <label>Downloaded engines and models</label>
+        <p class="hint" id="cache-size">Checking...</p>
+        <button type="button" id="cache-clear" class="btn btn-sm btn-ghost">Delete downloads</button>
+        <p class="hint">Kept so the next visit starts right away. Deleting them frees the space; the next file downloads them again.</p>
+      </div>
       <div class="settings-actions"><button class="btn btn-sm">Done</button></div>
     </form>
   </dialog>

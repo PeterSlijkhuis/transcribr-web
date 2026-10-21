@@ -18,6 +18,14 @@ export function timeLeft(elapsedSec, fraction) {
   return left < 60 ? "under a minute left" : `about ${Math.round(left / 60)} min left`;
 }
 
+/// Rough total time for a file before it starts. Transcription and speaker
+/// detection run side by side, so the slower of the two counts, plus a few
+/// seconds to decode and load. Speeds are seconds of audio per second.
+export function estimate(durationSec, asrSpeed, diarSpeed) {
+  const sec = Math.max(durationSec / asrSpeed, durationSec / diarSpeed) + 10;
+  return sec < 60 ? "under a minute" : `about ${Math.round(sec / 60)} min`;
+}
+
 /// Collapse consecutive same-speaker rows into conversational turns.
 export function toTurns(rows) {
   const acc = [];

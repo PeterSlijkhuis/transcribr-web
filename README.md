@@ -55,7 +55,7 @@ The page walks you through two numbered steps.
 
 **1. Add your files.** Drag audio or video onto the drop zone, or click to
 choose. Anything your browser can play works (MP3, WAV, M4A, MP4, WebM, ...).
-Each file then waits in a list with its length and its own speaker count,
+Each file then waits in a list with its length, a rough time estimate, and its own speaker count,
 language and translate choice, starting from the values set above the list.
 Leaving speakers at 0 means "detect automatically". If you know how many
 people speak, enter it: speaker labels come out much more accurate,

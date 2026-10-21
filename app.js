@@ -6,7 +6,7 @@
 // diarize in the sherpa worker while transcribing in the whisper worker,
 // merge here.
 import { assignSpeakers } from "./merge.js";
-import { speakerCount, fmtClock, renameSpeakers, timeLeft } from "./shared.js";
+import { speakerCount, fmtClock, renameSpeakers, timeLeft, estimate } from "./shared.js";
 import { downloadCsv } from "./export/csv.js";
 import { downloadJson } from "./export/json.js";
 import { downloadSrt } from "./export/srt.js";
@@ -286,6 +286,28 @@ function asrEngine() {
   return useGpu(selectedModel()) ? gpu : whisper;
 }
 
+// Seconds of audio handled per second, for the estimate shown before a file
+// starts. ponytail: starting guesses from one tested laptop and the CI runs;
+// each finished file replaces them with what this device actually did.
+const DEFAULT_SPEED = { "tiny:cpu": 4, "tiny:gpu": 10, "small:cpu": 1, "small:gpu": 5, "medium:cpu": 0.7, "medium:gpu": 3, diar: 2 };
+
+function speed(key) {
+  return Number(savedSetting(`speed:${key}`)) || DEFAULT_SPEED[key];
+}
+
+function saveSpeed(key, audioSec, workSec) {
+  if (workSec < 1) return;
+  try { localStorage.setItem(`speed:${key}`, (audioSec / workSec).toFixed(2)); } catch (e) {}
+}
+
+function updateEstimate(li) {
+  if (!manifest || !li.durationSec) return;
+  const model = selectedModel();
+  const onGpu = useGpu(model, li.querySelector(".staged-translate").checked);
+  li.querySelector(".staged-estimate").textContent =
+    `Takes ${estimate(li.durationSec, speed(`${model.id}:${onGpu ? "gpu" : "cpu"}`), speed("diar"))} with ${model.label.split(" (")[0]} on the ${onGpu ? "graphics card" : "processor"}`;
+}
+
 function describeHardware() {
   const parts = [`${hardware.cores} CPU cores`];
   if (hardware.memoryGb) parts.push(`${hardware.memoryGb}${hardware.memoryGb >= 8 ? "+" : ""} GB memory`);
@@ -311,6 +333,7 @@ function updateModelHint() {
     : selectedModel().onnx
       ? "The graphics card was about 3x faster on a tested laptop. Its first run downloads a separate copy of the model."
       : "This model has no GPU version, so it runs on the processor.";
+  for (const li of document.querySelectorAll(".staged")) updateEstimate(li);
 }
 
 // The model choice is remembered per browser, like the theme.
@@ -1055,12 +1078,15 @@ async function processJob(job) {
   let diarFraction = 0;
   let diarStage = "Detecting speakers, transcribes next";
   let showDiar = true;
-  const diarizing = diarizer.load(manifest).then(() =>
-    diarizer.request({ type: "diarize", samples: diarSamples, numSpeakers }, [diarSamples.buffer], (p) => {
+  const diarizing = diarizer.load(manifest).then(async () => {
+    const start = performance.now();
+    const result = await diarizer.request({ type: "diarize", samples: diarSamples, numSpeakers }, [diarSamples.buffer], (p) => {
       diarFraction = p.fraction;
       if (showDiar) setStatus(job, diarStage, diarFraction);
-    })
-  );
+    });
+    saveSpeed("diar", durationSec, (performance.now() - start) / 1000);
+    return result;
+  });
   diarizing.catch(() => {}); // awaited below; don't report it as unhandled meanwhile
 
   const transcribe = async () => {
@@ -1099,12 +1125,14 @@ async function processJob(job) {
     if (onGpu) arm();
     setGameAllowed(!onGpu);
     try {
-      return await engine.request(
+      const result = await engine.request(
         { type: "transcribe", samples, language, translate: job.translate, modelUrl: onGpu ? model.onnx : model.url, dtype: model.onnxDtype },
         // Keep a copy while on the GPU, in case it fails and the CPU retries.
         onGpu ? [] : [samples.buffer],
         onProgress
       );
+      if (transcribeStart) saveSpeed(`${model.id}:${onGpu ? "gpu" : "cpu"}`, durationSec, (performance.now() - transcribeStart) / 1000);
+      return result;
     } finally {
       clearTimeout(watchdog);
       setGameAllowed(true);
@@ -1241,7 +1269,7 @@ function stageFile(file) {
   const li = document.createElement("li");
   li.className = "staged";
   li.innerHTML = `
-    <div class="staged-name"><strong></strong><span class="hint"></span></div>
+    <div class="staged-name"><strong></strong><span class="hint"></span><span class="hint staged-estimate"></span></div>
     <label class="staged-field">Speakers <input type="number" class="staged-speakers" min="0" max="20" /></label>
     <label class="staged-field">Language </label>
     <label class="checkbox-label"><input type="checkbox" class="staged-translate" /> Translate</label>
@@ -1255,7 +1283,11 @@ function stageFile(file) {
   media.preload = "metadata";
   media.src = URL.createObjectURL(file);
   media.onloadedmetadata = () => {
-    if (Number.isFinite(media.duration)) info.textContent = `${fmtClock(media.duration)} · ${info.textContent}`;
+    if (Number.isFinite(media.duration)) {
+      info.textContent = `${fmtClock(media.duration)} · ${info.textContent}`;
+      li.durationSec = media.duration;
+      updateEstimate(li);
+    }
     URL.revokeObjectURL(media.src);
   };
   media.onerror = () => URL.revokeObjectURL(media.src);
@@ -1266,6 +1298,7 @@ function stageFile(file) {
   language.value = languageInput.value;
   li.querySelectorAll(".staged-field")[1].appendChild(language);
   li.querySelector(".staged-translate").checked = translateInput.checked;
+  li.querySelector(".staged-translate").onchange = () => updateEstimate(li);
   li.querySelector("button").setAttribute("aria-label", `Remove ${file.name}`);
   li.querySelector("button").onclick = () => {
     li.remove();

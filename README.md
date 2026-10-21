@@ -54,7 +54,10 @@ are compiled to WebAssembly and run on your own CPU, inside the browser tab.
 The page walks you through three numbered steps.
 
 **1. File options.** Optionally set the language and the number of
-speakers. Leaving them blank or at 0 means "detect automatically". The
+speakers. Leaving them blank or at 0 means "detect automatically". If you
+know how many people speak, enter it: speaker labels come out much more
+accurate, especially in busy conversations where automatic detection can
+find too many speakers. The
 model and light/dark appearance live under **⚙️ Settings** at the top right,
 and both are remembered in your browser.
 

@@ -1012,10 +1012,8 @@ function askLongRecording(job) {
 async function processJob(job) {
   job.status = "processing";
   job.el.dataset.status = "processing";
-  // File options are read once, here, so a file uses what was set when it started.
-  const language = languageInput.value || "auto";
-  const numSpeakers = Math.min(20, Math.max(0, parseInt(numSpeakersInput.value, 10) || 0));
-  job.translate = translateInput.checked;
+  const { language, numSpeakers } = job.opts;
+  job.translate = job.opts.translate;
   const jobStart = performance.now();
 
   startEstimatedProgress(job, "Decoding audio", 1500);
@@ -1196,7 +1194,7 @@ function removeJob(job) {
   job.el.remove();
 }
 
-function addJob(file) {
+function addJob(file, opts) {
   const li = document.createElement("li");
   li.className = "job";
   li.innerHTML = `
@@ -1212,7 +1210,7 @@ function addJob(file) {
   `;
   li.querySelector(".job-name").textContent = file.name;
   jobList.appendChild(li);
-  const job = { name: file.name, file, el: li, rows: [], names: {}, extraSpeakers: [], durationSec: 0, undo: [] };
+  const job = { name: file.name, file, opts, el: li, rows: [], names: {}, extraSpeakers: [], durationSec: 0, undo: [] };
   li.job = job;
   li.querySelector(".job-remove").setAttribute("aria-label", `Remove ${file.name}`);
   li.querySelector(".job-remove").onclick = () => removeJob(job);
@@ -1227,25 +1225,72 @@ function setCollapsed(el, collapsed) {
   el.toggleAttribute("inert", collapsed);
 }
 
-// Folding the Settings panel once files start queuing keeps the page from
-// growing top-heavy without gating anything -- it stays one click away and
-// settings still apply live to whatever's picked when each job starts.
-let settingsAutoFolded = false;
+// Added files wait in step 1, each with its own speakers, language and
+// translate choice (starting from the values above the list), until Start.
+const stagedBox = document.getElementById("staged");
+const stagedList = document.getElementById("staged-list");
+const startButton = document.getElementById("start");
 
-function foldPanel(controlsId) {
-  const toggle = document.querySelector(`.panel-toggle[aria-controls="${controlsId}"]`);
-  toggle.setAttribute("aria-expanded", "false");
-  setCollapsed(document.getElementById(controlsId), true);
+function updateStaged() {
+  const n = stagedList.children.length;
+  stagedBox.hidden = !n;
+  startButton.textContent = `Start transcribing ${n} file${n === 1 ? "" : "s"}`;
 }
+
+function stageFile(file) {
+  const li = document.createElement("li");
+  li.className = "staged";
+  li.innerHTML = `
+    <div class="staged-name"><strong></strong><span class="hint"></span></div>
+    <label class="staged-field">Speakers <input type="number" class="staged-speakers" min="0" max="20" /></label>
+    <label class="staged-field">Language </label>
+    <label class="checkbox-label"><input type="checkbox" class="staged-translate" /> Translate</label>
+    <button type="button" class="btn btn-sm btn-ghost">Remove</button>
+  `;
+  li.querySelector("strong").textContent = file.name;
+  const info = li.querySelector(".hint");
+  info.textContent = `${mb(file.size).toLocaleString()} MB`;
+  // The length, when the browser can read it without decoding everything.
+  const media = document.createElement("audio");
+  media.preload = "metadata";
+  media.src = URL.createObjectURL(file);
+  media.onloadedmetadata = () => {
+    if (Number.isFinite(media.duration)) info.textContent = `${fmtClock(media.duration)} · ${info.textContent}`;
+    URL.revokeObjectURL(media.src);
+  };
+  media.onerror = () => URL.revokeObjectURL(media.src);
+  li.querySelector(".staged-speakers").value = numSpeakersInput.value;
+  const language = languageInput.cloneNode(true);
+  language.removeAttribute("id");
+  language.className = "staged-language";
+  language.value = languageInput.value;
+  li.querySelectorAll(".staged-field")[1].appendChild(language);
+  li.querySelector(".staged-translate").checked = translateInput.checked;
+  li.querySelector("button").setAttribute("aria-label", `Remove ${file.name}`);
+  li.querySelector("button").onclick = () => {
+    li.remove();
+    updateStaged();
+  };
+  li.file = file;
+  stagedList.appendChild(li);
+}
+
+startButton.addEventListener("click", () => {
+  for (const li of [...stagedList.children]) {
+    addJob(li.file, {
+      numSpeakers: Math.min(20, Math.max(0, parseInt(li.querySelector(".staged-speakers").value, 10) || 0)),
+      language: li.querySelector(".staged-language").value || "auto",
+      translate: li.querySelector(".staged-translate").checked,
+    });
+    li.remove();
+  }
+  updateStaged();
+});
 
 function queueFiles(fileList) {
   if (fileInput.disabled) return;
-  const files = Array.from(fileList);
-  for (const file of files) addJob(file);
-  if (!settingsAutoFolded && files.length) {
-    settingsAutoFolded = true;
-    foldPanel("settings-body");
-  }
+  for (const file of fileList) stageFile(file);
+  updateStaged();
 }
 
 fileInput.addEventListener("change", () => {

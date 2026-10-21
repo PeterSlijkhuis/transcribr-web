@@ -55,14 +55,15 @@ The page walks you through two numbered steps.
 
 **1. Add your files.** Drag audio or video onto the drop zone, or click to
 choose. Anything your browser can play works (MP3, WAV, M4A, MP4, WebM, ...).
-Each file then waits in a list with its length, a rough time estimate, and its own speaker count,
-language and translate choice, starting from the values set above the list.
+Each file then waits in a list with its length, a rough time estimate, and its own model,
+speaker count, language and translate choice, starting from the values set above the list.
+The model starts on *Automatic*, which picks the best one for your device.
 Leaving speakers at 0 means "detect automatically". If you know how many
 people speak, enter it: speaker labels come out much more accurate,
 especially in busy conversations where automatic detection can find too
-many speakers. Press **Start transcribing** when the list is right. The
-model and light/dark appearance live under **⚙️ Settings** at the top right,
-and both are remembered in your browser.
+many speakers. Press **Start transcribing** when the list is right. Your
+default model is remembered in your browser; light/dark appearance and the
+processor or graphics card choice live under **⚙️ Settings** at the top right.
 
 <img src="docs/images/start.png" alt="The start of the page: the Settings button, and the file options step with speakers, language and a translate toggle" width="640" />
 
@@ -75,7 +76,9 @@ while typing. Every line is editable in place, like a word processor:
 **Enter** splits a line, **Backspace** at its start joins it to the one
 above, **Alt+1-9** gives it to another speaker, and **Ctrl+Z** undoes any
 of it. Rename "Speaker 1" to "Interviewer" in the side panel, fix a
-misheard name everywhere with **Find** (Ctrl+F) and **Replace all**, and
+misheard name with **Find** (Ctrl+F): every match is highlighted, **Enter**
+and **Shift+Enter** (or the arrows) step through them, and **Replace** or
+**Replace all** fixes them. Then
 pick a format from **Download**. Edits apply to every export immediately;
 there is no separate save step.
 
@@ -112,7 +115,7 @@ models take.
 
 ## Choosing a model
 
-The model is picked automatically for your device; to choose one yourself, open **⚙️ Settings**, which explains each model. Rule of thumb: start with
+The model is picked automatically for your device; to choose one yourself, use **Model** in step 1 (for all new files) or in a file's row (for that file only). **Which model should I pick?** below it explains each one. Rule of thumb: start with
 **Standard**; drop to **Fast** on an older laptop, step up to **Accurate**
 for hard audio (accents, noise, crosstalk) if you can wait.
 
@@ -233,7 +236,7 @@ a bit on top. There's a small game to play while you wait.
 <summary><strong>Can it use my GPU?</strong></summary>
 
 Yes, and by default it does so on its own. With
-**Model** and **Run on** both left at *Automatic* in ⚙️ Settings, the app
+**Model** left at *Automatic* and **Run on** at *Automatic* in ⚙️ Settings, the app
 checks your device and picks Standard on the graphics card when there is a
 usable one, Standard on the processor with 4+ cores, and Fast below that. If
 the graphics card fails, the file finishes on the processor. Automatic never

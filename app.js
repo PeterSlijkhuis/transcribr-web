@@ -267,9 +267,9 @@ function gpuAvailable() {
 // "auto" picks Standard where it runs at least about real time (a GPU, or
 // 4+ cores with 4+ GB), else Fast. It never picks Accurate: on the CPU it's
 // slower than the recording, and it has no GPU version.
-function selectedModel() {
+function selectedModel(choice = modelSelect.value) {
   const models = manifest.whisper.models;
-  if (modelSelect.value !== "auto") return models.find((m) => m.id === modelSelect.value) || models.find((m) => m.default);
+  if (choice !== "auto") return models.find((m) => m.id === choice) || models.find((m) => m.default);
   const strong = gpuAvailable() || (hardware.cores >= 4 && (hardware.memoryGb || 8) >= 4);
   return models.find((m) => m.id === (strong ? "small" : "tiny"));
 }
@@ -282,8 +282,9 @@ function useGpu(model, translate = translateInput.checked) {
   return engineSelect.value !== "cpu" && gpuAvailable() && Boolean(model.onnx) && !(translate && model.onnxNoTranslate);
 }
 
-function asrEngine() {
-  return useGpu(selectedModel()) ? gpu : whisper;
+function asrEngine(job) {
+  const opts = job ? job.opts : {};
+  return useGpu(selectedModel(opts.model), opts.translate) ? gpu : whisper;
 }
 
 // Seconds of audio handled per second, for the estimate shown before a file
@@ -302,7 +303,7 @@ function saveSpeed(key, audioSec, workSec) {
 
 function updateEstimate(li) {
   if (!manifest || !li.durationSec) return;
-  const model = selectedModel();
+  const model = selectedModel(li.querySelector(".staged-model").value);
   const onGpu = useGpu(model, li.querySelector(".staged-translate").checked);
   li.querySelector(".staged-estimate").textContent =
     `Takes ${estimate(li.durationSec, speed(`${model.id}:${onGpu ? "gpu" : "cpu"}`), speed("diar"))} with ${model.label.split(" (")[0]} on the ${onGpu ? "graphics card" : "processor"}`;
@@ -390,7 +391,7 @@ async function loadAsr(asr, onProgress) {
 
 async function ensureEngines(job) {
   await fillModelPicker(await loadManifest());
-  const asr = asrEngine();
+  const asr = asrEngine(job);
   if (sherpa.loading && asr.loading) {
     // Already loaded by an earlier job (jobs run one at a time).
     await Promise.all([sherpa.loading, asr.loading]);
@@ -431,8 +432,8 @@ let active = 0;
 const MAX_PARALLEL_FILES = 3;
 const diarizers = [sherpa];
 
-function parallelFiles() {
-  if (!manifest || !useGpu(selectedModel())) return 1;
+function parallelFiles(next) {
+  if (!manifest || !next || !useGpu(selectedModel(next.opts.model), next.opts.translate)) return 1;
   return Math.max(1, Math.min(MAX_PARALLEL_FILES, hardware.cores - 2));
 }
 
@@ -877,14 +878,23 @@ function renderTranscript(job) {
       checkpointTyping(job, row);
       row.transcribed_text = text.value;
       autosize(text);
+      refreshFind();
     });
     text.addEventListener("keydown", (e) => onLineKey(job, i, text, e));
 
-    seg.append(gutter, text);
+    // Find's highlights, drawn over the text in the same layout.
+    const body = document.createElement("div");
+    body.className = "seg-body";
+    const marks = document.createElement("div");
+    marks.className = "seg-marks";
+    marks.setAttribute("aria-hidden", "true");
+    body.append(text, marks);
+    seg.append(gutter, body);
     frag.append(seg);
   });
   editorTranscript.replaceChildren(frag);
   editorTranscript.querySelectorAll(".seg-text").forEach(autosize);
+  refreshFind();
   followPlayback();
 }
 
@@ -924,6 +934,7 @@ editor.addEventListener("keydown", (e) => {
   } else if (mod && (e.key.toLowerCase() === "f" || e.key.toLowerCase() === "h")) {
     e.preventDefault();
     showFind(true);
+    if (e.key.toLowerCase() === "h") replaceText.focus();
   }
 });
 
@@ -933,55 +944,149 @@ window.addEventListener("beforeunload", (e) => {
 });
 
 // ---- Find & replace --------------------------------------------------------
+// Every match is highlighted in a layer drawn over the text boxes (a
+// textarea can't highlight part of its own text); the current one stands
+// out. Enter/Shift+Enter step through them, Replace changes the current one
+// and moves on.
 
-let foundAt = -1;
+const findCase = document.getElementById("find-case");
+let matches = []; // { row, start, end }, in reading order
+let matchAt = -1;
 
-function countMatches(job, find) {
-  return find ? job.rows.reduce((n, r) => n + r.transcribed_text.split(find).length - 1, 0) : 0;
+function findMatches(job) {
+  const needle = findText.value;
+  if (!needle || !job) return [];
+  const re = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), findCase.checked ? "g" : "gi");
+  const out = [];
+  job.rows.forEach((r, row) => {
+    for (const m of r.transcribed_text.matchAll(re)) out.push({ row, start: m.index, end: m.index + m[0].length });
+  });
+  return out;
+}
+
+function paintMatches() {
+  for (const marks of editorTranscript.querySelectorAll(".seg-marks")) marks.replaceChildren();
+  let prev = null;
+  matches.forEach((m, k) => {
+    const marks = editorTranscript.children[m.row]?.querySelector(".seg-marks");
+    if (!marks) return;
+    const text = current.rows[m.row].transcribed_text;
+    const mark = document.createElement("mark");
+    mark.textContent = text.slice(m.start, m.end);
+    if (k === matchAt) mark.className = "current";
+    marks.append(text.slice(prev && prev.row === m.row ? prev.end : 0, m.start), mark);
+    prev = m;
+  });
+  findCount.textContent = !findText.value ? "" : matches.length ? `${matchAt + 1} of ${matches.length}` : "No matches";
+  for (const id of ["find-prev", "find-next", "replace-one", "replace-all"]) document.getElementById(id).disabled = !matches.length;
+}
+
+// Re-find after the text changed. `from` keeps the place: the first match
+// at or after that spot becomes the current one.
+function refreshFind(from) {
+  if (findBar.hidden || !current) return;
+  matches = findMatches(current);
+  if (!matches.length) matchAt = -1;
+  else if (from) {
+    const k = matches.findIndex((m) => m.row > from.row || (m.row === from.row && m.start >= from.start));
+    matchAt = k < 0 ? 0 : k;
+  } else matchAt = Math.min(Math.max(matchAt, 0), matches.length - 1);
+  paintMatches();
+}
+
+function goToMatch(step) {
+  if (!matches.length) return;
+  matchAt = (matchAt + step + matches.length) % matches.length;
+  paintMatches();
+  const seg = editorTranscript.children[matches[matchAt].row];
+  const view = editor.querySelector(".editor-body").getBoundingClientRect();
+  const r = seg.getBoundingClientRect();
+  if (r.top < view.top + 40 || r.bottom > view.bottom) seg.scrollIntoView({ block: "center" });
 }
 
 function showFind(show) {
   findBar.hidden = !show;
   findToggle.setAttribute("aria-expanded", String(show));
   if (show) {
+    // Text selected in a line becomes the search, as in a word processor.
+    const box = document.activeElement;
+    if (box && box.classList.contains("seg-text") && box.selectionEnd > box.selectionStart) {
+      findText.value = box.value.slice(box.selectionStart, box.selectionEnd);
+    }
     findText.focus();
     findText.select();
+    matchAt = -1;
+    refreshFind();
+    goToMatch(0);
   } else {
-    editorTranscript.querySelector(".found")?.classList.remove("found");
+    // Leave the caret on the current match, so you can carry on typing there.
+    const m = matches[matchAt];
+    matches = [];
+    paintMatches();
+    const box = m && editorTranscript.children[m.row]?.querySelector(".seg-text");
+    if (box) {
+      box.focus();
+      box.setSelectionRange(m.start, m.end);
+    }
   }
 }
 findToggle.addEventListener("click", () => showFind(findBar.hidden));
+document.getElementById("find-close").addEventListener("click", () => showFind(false));
+document.getElementById("find-next").addEventListener("click", () => goToMatch(1));
+document.getElementById("find-prev").addEventListener("click", () => goToMatch(-1));
 
-findText.addEventListener("input", () => {
-  foundAt = -1;
-  const n = countMatches(current, findText.value);
-  findCount.textContent = findText.value ? `${n} match${n === 1 ? "" : "es"}` : "";
+// Typing a search jumps to its first match, like a browser's find.
+for (const el of [findText, findCase]) {
+  el.addEventListener("input", () => {
+    matchAt = -1;
+    refreshFind();
+    goToMatch(0);
+  });
+}
+
+// Esc closes find from its own boxes too (a search box would otherwise
+// just clear itself).
+findBar.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  e.preventDefault();
+  e.stopPropagation();
+  showFind(false);
 });
 
-// Enter in the find box jumps to the next line containing the text.
 findText.addEventListener("keydown", (e) => {
-  if (e.key !== "Enter" || !findText.value) return;
+  if (e.key !== "Enter") return;
   e.preventDefault();
-  const rows = current.rows;
-  for (let k = 1; k <= rows.length; k++) {
-    const i = (foundAt + k) % rows.length;
-    if (!rows[i].transcribed_text.includes(findText.value)) continue;
-    foundAt = i;
-    editorTranscript.querySelector(".found")?.classList.remove("found");
-    const seg = editorTranscript.children[i];
-    seg.classList.add("found");
-    seg.scrollIntoView({ block: "center" });
-    return;
-  }
+  goToMatch(e.shiftKey ? -1 : 1);
+});
+
+function replaceCurrent() {
+  const m = matches[matchAt];
+  if (!m) return;
+  const row = current.rows[m.row];
+  checkpoint(current);
+  row.transcribed_text = row.transcribed_text.slice(0, m.start) + replaceText.value + row.transcribed_text.slice(m.end);
+  changed(current);
+  // Carry on after the replacement, so it isn't found again.
+  refreshFind({ row: m.row, start: m.start + replaceText.value.length });
+  goToMatch(0);
+}
+document.getElementById("replace-one").addEventListener("click", replaceCurrent);
+replaceText.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  replaceCurrent();
 });
 
 document.getElementById("replace-all").addEventListener("click", () => {
-  const job = current;
-  const n = countMatches(job, findText.value);
+  const n = matches.length;
   if (!n) return;
-  checkpoint(job);
-  for (const r of job.rows) r.transcribed_text = r.transcribed_text.split(findText.value).join(replaceText.value);
-  changed(job);
+  checkpoint(current);
+  // Back to front, so earlier positions stay valid.
+  for (const m of [...matches].reverse()) {
+    const row = current.rows[m.row];
+    row.transcribed_text = row.transcribed_text.slice(0, m.start) + replaceText.value + row.transcribed_text.slice(m.end);
+  }
+  changed(current);
   findCount.textContent = `Replaced ${n}`;
 });
 
@@ -1090,7 +1195,7 @@ async function processJob(job) {
   diarizing.catch(() => {}); // awaited below; don't report it as unhandled meanwhile
 
   const transcribe = async () => {
-    const model = selectedModel();
+    const model = selectedModel(job.opts.model);
     const onGpu = useGpu(model, job.translate);
     const engine = onGpu ? gpu : whisper;
     job.model = onGpu ? `${model.onnx} (GPU)` : model.name;
@@ -1181,7 +1286,7 @@ async function processJob(job) {
 }
 
 function runQueue() {
-  while (queue.length && active < parallelFiles()) {
+  while (queue.length && active < parallelFiles(queue[0])) {
     const job = queue.shift();
     active++;
     processJob(job)
@@ -1270,6 +1375,7 @@ function stageFile(file) {
   li.className = "staged";
   li.innerHTML = `
     <div class="staged-name"><strong></strong><span class="hint"></span><span class="hint staged-estimate"></span></div>
+    <label class="staged-field">Model </label>
     <label class="staged-field">Speakers <input type="number" class="staged-speakers" min="0" max="20" /></label>
     <label class="staged-field">Language </label>
     <label class="checkbox-label"><input type="checkbox" class="staged-translate" /> Translate</label>
@@ -1296,7 +1402,14 @@ function stageFile(file) {
   language.removeAttribute("id");
   language.className = "staged-language";
   language.value = languageInput.value;
-  li.querySelectorAll(".staged-field")[1].appendChild(language);
+  li.querySelectorAll(".staged-field")[2].appendChild(language);
+  const model = modelSelect.cloneNode(true);
+  model.removeAttribute("id");
+  model.className = "staged-model";
+  for (const o of model.options) o.textContent = o.textContent.split(" (")[0]; // the row has little room
+  model.value = modelSelect.value;
+  model.onchange = () => updateEstimate(li);
+  li.querySelectorAll(".staged-field")[0].appendChild(model);
   li.querySelector(".staged-translate").checked = translateInput.checked;
   li.querySelector(".staged-translate").onchange = () => updateEstimate(li);
   li.querySelector("button").setAttribute("aria-label", `Remove ${file.name}`);
@@ -1314,6 +1427,7 @@ startButton.addEventListener("click", () => {
       numSpeakers: Math.min(20, Math.max(0, parseInt(li.querySelector(".staged-speakers").value, 10) || 0)),
       language: li.querySelector(".staged-language").value || "auto",
       translate: li.querySelector(".staged-translate").checked,
+      model: li.querySelector(".staged-model").value,
     });
     li.remove();
   }
@@ -1352,13 +1466,8 @@ document.querySelectorAll(".panel-toggle").forEach((toggle) => {
 
 const settingsDialog = document.getElementById("settings-dialog");
 const themeSelect = document.getElementById("theme");
-// Red dot on Settings until the first visit, so new users find the model choice.
-const settingsBadge = document.getElementById("settings-badge");
-try { settingsBadge.hidden = localStorage.getItem("settingsSeen") === "1"; } catch (e) {}
 document.getElementById("settings-open").addEventListener("click", () => {
   themeSelect.value = themePref(); // themePref/setTheme: inline script in index.html
-  settingsBadge.hidden = true;
-  try { localStorage.setItem("settingsSeen", "1"); } catch (e) {}
   settingsDialog.showModal();
   showCacheSize();
 });

@@ -307,7 +307,7 @@ progress::-moz-progress-bar {
   padding-left: 1.35rem;
 }
 .panel > .hint,
-.options + .hint {
+.model-guide + .hint {
   margin-top: 0.6rem;
 }
 
@@ -475,16 +475,6 @@ input[type="checkbox"] {
 .settings-open:hover,
 .settings-open:focus-visible {
   background: rgba(255, 255, 255, 0.28);
-}
-.settings-badge {
-  position: absolute;
-  top: -3px;
-  right: -3px;
-  width: 0.7rem;
-  height: 0.7rem;
-  border-radius: 50%;
-  background: var(--danger);
-  border: 2px solid #fff;
 }
 .model-guide {
   margin-top: 0.6rem;
@@ -802,9 +792,30 @@ input[type="checkbox"] {
 .find-bar input {
   width: 12rem;
 }
+.find-group {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
 #find-count {
   color: var(--muted);
-  min-width: 6rem;
+  min-width: 5.5rem;
+  font-variant-numeric: tabular-nums;
+}
+.btn-icon {
+  min-width: 2rem;
+  padding-inline: 0.5rem;
+}
+.find-case {
+  font-weight: 450;
+  font-size: 0.85rem;
+  margin-left: 0.3rem;
+}
+.find-bar .find-case input {
+  width: auto;
+}
+#find-close {
+  margin-left: auto;
 }
 .editor-body {
   display: grid;
@@ -999,8 +1010,30 @@ input[type="checkbox"] {
 .seg.playing .seg-text {
   background: var(--brand-soft);
 }
-.seg.found .seg-text {
-  outline: 2px solid var(--warn-line);
+/* Find's highlights: a transparent copy of the line's text laid exactly
+   over the text box, with only the matches coloured in. */
+.seg-body {
+  position: relative;
+  min-width: 0;
+}
+.seg-marks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  color: transparent;
+  border-left: 3px solid transparent;
+  padding: 0.1rem 0.6rem;
+}
+.seg-marks mark {
+  color: transparent;
+  background: rgba(250, 204, 21, 0.4);
+  border-radius: 2px;
+}
+.seg-marks mark.current {
+  background: rgba(249, 115, 22, 0.55);
+  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.8);
 }
 .editor-player {
   display: flex;
@@ -1073,6 +1106,9 @@ input[type="checkbox"] {
   .find-bar input {
     flex: 1;
     min-width: 0;
+  }
+  .find-group {
+    flex: 1 1 100%;
   }
   .speed {
     display: none; /* the player's own menu has speed on phones */

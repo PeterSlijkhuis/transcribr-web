@@ -243,7 +243,9 @@ function gpuPref() {
 
 async function detectGpu() {
   try {
-    const a = navigator.gpu && (await navigator.gpu.requestAdapter({ powerPreference: gpuPref() }));
+    // Some systems answer a power preference with no adapter at all while a
+    // plain request still gets one, so ask again without it.
+    const a = navigator.gpu && ((await navigator.gpu.requestAdapter({ powerPreference: gpuPref() })) || (await navigator.gpu.requestAdapter()));
     hardware.gpu = Boolean(a) && !(a.isFallbackAdapter || (a.info && a.info.isFallbackAdapter));
     const info = (a && a.info) || {};
     hardware.gpuName = info.description || [info.vendor, info.architecture].filter(Boolean).join(" ");
@@ -305,7 +307,7 @@ function updateModelHint() {
     ? `In use: ${hardware.gpuName || "a graphics card the browser doesn't name"}. If that's the wrong one, set your browser to "High performance" in Windows Settings > System > Display > Graphics.`
     : "No usable graphics card in this browser.";
   engineHint.textContent = !hardware.gpu
-    ? "This browser has no usable GPU (WebGPU), so everything runs on the processor. A recent Chrome or Edge may have one."
+    ? "This browser has no usable GPU (WebGPU), so everything runs on the processor. A recent Chrome or Edge may have one. If it worked before, restart the browser: after a graphics card problem, Chrome switches it off for a site until then."
     : selectedModel().onnx
       ? "The graphics card was about 3x faster on a tested laptop. Its first run downloads a separate copy of the model."
       : "This model has no GPU version, so it runs on the processor.";

@@ -77,7 +77,7 @@ self.onmessage = async (ev) => {
       // preference. The model then runs on this exact adapter, so the card
       // checked here is the card that does the work.
       const powerPreference = msg.powerPreference || "high-performance";
-      const adapter = navigator.gpu && (await navigator.gpu.requestAdapter({ powerPreference }));
+      const adapter = navigator.gpu && ((await navigator.gpu.requestAdapter({ powerPreference })) || (await navigator.gpu.requestAdapter()));
       if (!adapter) throw new Error("this browser has no usable GPU (WebGPU)");
       f16 = adapter.features.has("shader-f16");
       env.backends.onnx.webgpu.powerPreference = powerPreference;

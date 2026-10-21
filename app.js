@@ -181,6 +181,25 @@ async function pruneOldEngineCaches(version) {
   } catch (e) {}
 }
 
+// The engine and GPU model downloads (Transformers.js keeps its own cache).
+// The site shares its origin with other github.io pages of the same
+// account, so only these caches are counted or deleted, never all of them.
+function isOurCache(name) {
+  return name.startsWith(ENGINE_CACHE_PREFIX) || name === "transformers-cache";
+}
+
+async function cachedBytes() {
+  let total = 0;
+  for (const name of (await caches.keys()).filter(isOurCache)) {
+    const cache = await caches.open(name);
+    for (const req of await cache.keys()) {
+      const res = await cache.match(req);
+      total += Number(res.headers.get("content-length")) || (await res.blob()).size;
+    }
+  }
+  return total;
+}
+
 function mb(bytes) {
   return Math.round(bytes / 1e6);
 }
@@ -1192,6 +1211,7 @@ function addJob(file) {
   li.querySelector(".job-name").textContent = file.name;
   jobList.appendChild(li);
   const job = { name: file.name, file, el: li, rows: [], names: {}, extraSpeakers: [], durationSec: 0, undo: [] };
+  li.job = job;
   li.querySelector(".job-remove").setAttribute("aria-label", `Remove ${file.name}`);
   li.querySelector(".job-remove").onclick = () => removeJob(job);
   enqueue(job);
@@ -1260,6 +1280,52 @@ document.getElementById("settings-open").addEventListener("click", () => {
   settingsBadge.hidden = true;
   try { localStorage.setItem("settingsSeen", "1"); } catch (e) {}
   settingsDialog.showModal();
+  showCacheSize();
+});
+
+const cacheSize = document.getElementById("cache-size");
+const cacheClear = document.getElementById("cache-clear");
+async function showCacheSize() {
+  // Deleting mid-run would only make the running file download again.
+  cacheClear.disabled = active > 0;
+  try {
+    const bytes = await cachedBytes();
+    cacheSize.textContent = bytes ? `${mb(bytes).toLocaleString()} MB stored in this browser.` : "Nothing stored.";
+    if (!bytes) cacheClear.disabled = true;
+  } catch (e) {
+    cacheSize.textContent = "This browser doesn't keep downloads (private window?).";
+    cacheClear.disabled = true;
+  }
+}
+cacheClear.addEventListener("click", async () => {
+  try {
+    for (const name of (await caches.keys()).filter(isOurCache)) await caches.delete(name);
+  } catch (e) {}
+  showCacheSize();
+});
+
+const clearDone = document.getElementById("clear-done");
+const FINISHED = ["done", "skipped", "error"];
+function finishedJobs() {
+  return [...jobList.querySelectorAll(".job")].map((li) => li.job).filter((job) => job && FINISHED.includes(job.el.dataset.status));
+}
+function updateClearDone() {
+  clearDone.hidden = !finishedJobs().length;
+}
+clearDone.addEventListener("click", () => {
+  const jobs = finishedJobs();
+  const n = jobs.length;
+  if (!confirm(`Remove ${n} finished file${n === 1 ? "" : "s"}? Their transcripts are gone for good unless you downloaded them.`)) return;
+  for (const job of jobs) removeJob(job);
+  updateClearDone();
+});
+new MutationObserver(updateClearDone).observe(jobList, { subtree: true, attributes: true, attributeFilter: ["data-status"], childList: true });
+
+// Everything lives in this tab, so ask before it closes with files in it.
+window.addEventListener("beforeunload", (e) => {
+  if (!jobList.querySelector(".job")) return;
+  e.preventDefault();
+  e.returnValue = "";
 });
 themeSelect.addEventListener("change", () => setTheme(themeSelect.value));
 

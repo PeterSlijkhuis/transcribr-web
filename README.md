@@ -85,7 +85,7 @@ there is no separate save step.
 not to us, not to anyone.** Transcribr is a static page with no backend
 and no analytics.
 
-You don't have to take that on trust. The app makes exactly three kinds of
+You don't have to take that on trust. The app makes exactly four kinds of
 network request, all one-directional *downloads*, and your files appear in
 none of them:
 
@@ -95,11 +95,20 @@ none of them:
 3. `coi-serviceworker.js` re-issues the page's own requests with extra
    response headers (needed for `SharedArrayBuffer`). It never adds a new
    destination or new data.
+4. On a graphics card only: Transformers.js from jsDelivr and the ONNX
+   Whisper model from Hugging Face, also downloaded once and cached.
 
 Your audio is decoded locally (`AudioContext`) and handed to the engines
 only as in-memory `postMessage` data between your tab and its workers.
 Check it yourself: open DevTools → Network while transcribing, or read
 `app.js` and `engines/*.js`.
+
+The flip side: nothing is saved for you either. Files and transcripts live
+only in the open tab, and closing or reloading it loses them, so download
+what you need first (the page asks before it closes with files in it).
+**Clear finished files** removes done files from the list, and
+**⚙️ Settings → Delete downloads** frees the space the cached engines and
+models take.
 
 ## Choosing a model
 

@@ -32,7 +32,7 @@
 </head>
 <body>
   <header class="hero">
-    <button type="button" id="settings-open" class="settings-open" aria-haspopup="dialog" aria-describedby="settings-badge">&#9881;&#65039; Settings<span id="settings-badge" class="settings-badge" hidden><span class="visually-hidden">New: choose a model</span></span></button>
+    <button type="button" id="settings-open" class="settings-open" aria-haspopup="dialog">&#9881;&#65039; Settings</button>
     <p class="hero-eyebrow">&#127897;&#65039; Speech to text, speakers included</p>
     <h1>Transcribr</h1>
     <p class="subtitle">Transcription with speaker detection, entirely in your browser. Nothing you pick leaves your computer. Desktop Chrome, Edge, Firefox or Safari.</p>
@@ -58,6 +58,11 @@
       </label>
       <div id="options" class="options">
         <div class="field">
+          <label for="model">Model</label>
+          <select id="model"></select>
+          <p class="hint" id="model-hint"></p>
+        </div>
+        <div class="field">
           <label for="num-speakers">Speakers</label>
           <input type="number" id="num-speakers" min="0" max="20" value="0" />
           <p class="hint">0 = detect automatically. Know how many people speak? Enter it for much more accurate speakers.</p>
@@ -71,6 +76,20 @@
           <label class="checkbox-label"><input type="checkbox" id="translate" /> Translate to English</label>
         </div>
       </div>
+      <details class="model-guide">
+        <summary>Which model should I pick?</summary>
+        <table>
+          <thead><tr><th></th><th>Fast</th><th>Standard</th><th>Accurate</th></tr></thead>
+          <tbody>
+            <tr><th>Download, once</th><td>32 MB</td><td>190 MB</td><td>514 MB (1.6 GB on a graphics card)</td></tr>
+            <tr><th>Speed on a laptop</th><td>Several times faster than the recording</td><td>About as long as the recording</td><td>Two or more times longer than the recording on a processor; much faster on a graphics card</td></tr>
+            <tr><th>Mistakes</th><td>Misses names, jargon and accents; drifts on noisy audio</td><td>Good on clear speech in common languages</td><td>Fewest. Holds up with accents, noise, crosstalk and less common languages</td></tr>
+            <tr><th>Pick it for</th><td>A quick rough draft, or an old or slow computer</td><td>Most interviews and meetings</td><td>Anything you'll quote or publish, or hard audio</td></tr>
+          </tbody>
+        </table>
+        <p>All three are the same Whisper model at different sizes, so they share languages and features; bigger just means fewer mistakes and more waiting. Not sure? Start with Standard, and rerun a file on Accurate if names or words come out wrong. Speaker detection is the same whichever you pick.</p>
+        <p>On a graphics card, Accurate uses Whisper large-v3-turbo, a newer and larger model that is usually more accurate still. It can't translate, so with Translate to English on, Accurate runs on the processor.</p>
+      </details>
       <p class="hint">These are the starting values for each file you add. Change them per file in the list below before you start. Each file shows a rough time, which gets more accurate once a file has finished on this device. The first run also downloads the model.</p>
       <div id="staged" hidden>
         <ul id="staged-list"></ul>
@@ -128,10 +147,19 @@
       </div>
     </header>
     <div id="find-bar" class="find-bar" hidden>
-      <input type="search" id="find-text" placeholder="Find" aria-label="Find" title="Enter jumps to the next line" />
-      <input type="text" id="replace-text" placeholder="Replace with" aria-label="Replace with" />
-      <button type="button" id="replace-all" class="btn btn-sm btn-ghost">Replace all</button>
-      <span id="find-count" aria-live="polite"></span>
+      <div class="find-group">
+        <input type="text" id="find-text" placeholder="Find" aria-label="Find" title="Enter: next match. Shift+Enter: previous" />
+        <span id="find-count" aria-live="polite"></span>
+        <button type="button" id="find-prev" class="btn btn-sm btn-ghost btn-icon" aria-label="Previous match" title="Previous match (Shift+Enter)">&#8593;</button>
+        <button type="button" id="find-next" class="btn btn-sm btn-ghost btn-icon" aria-label="Next match" title="Next match (Enter)">&#8595;</button>
+        <label class="checkbox-label find-case"><input type="checkbox" id="find-case" /> Match case</label>
+      </div>
+      <div class="find-group">
+        <input type="text" id="replace-text" placeholder="Replace with" aria-label="Replace with" title="Enter replaces this match" />
+        <button type="button" id="replace-one" class="btn btn-sm btn-ghost">Replace</button>
+        <button type="button" id="replace-all" class="btn btn-sm btn-ghost">Replace all</button>
+      </div>
+      <button type="button" id="find-close" class="btn btn-sm btn-ghost btn-icon" aria-label="Close find" title="Close (Esc)">&#10005;</button>
     </div>
     <div class="editor-body">
       <aside class="editor-side">
@@ -147,6 +175,7 @@
             <dt>Alt+1-9</dt><dd>Give the line to speaker 1-9</dd>
             <dt>Ctrl+Z</dt><dd>Undo</dd>
             <dt>Ctrl+F</dt><dd>Find &amp; replace</dd>
+            <dt>Enter / Shift+Enter</dt><dd>In find: next / previous match</dd>
           </dl>
         </details>
       </aside>
@@ -171,25 +200,6 @@
   <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title">
     <form method="dialog">
       <h2 id="settings-title">Settings</h2>
-      <div class="field">
-        <label for="model">Model</label>
-        <select id="model"></select>
-        <p class="hint" id="model-hint"></p>
-        <details class="model-guide">
-          <summary>Which model should I pick?</summary>
-          <table>
-            <thead><tr><th></th><th>Fast</th><th>Standard</th><th>Accurate</th></tr></thead>
-            <tbody>
-              <tr><th>Download, once</th><td>32 MB</td><td>190 MB</td><td>514 MB (1.6 GB on a graphics card)</td></tr>
-              <tr><th>Speed on a laptop</th><td>Several times faster than the recording</td><td>About as long as the recording</td><td>Two or more times longer than the recording on a processor; much faster on a graphics card</td></tr>
-              <tr><th>Mistakes</th><td>Misses names, jargon and accents; drifts on noisy audio</td><td>Good on clear speech in common languages</td><td>Fewest. Holds up with accents, noise, crosstalk and less common languages</td></tr>
-              <tr><th>Pick it for</th><td>A quick rough draft, or an old or slow computer</td><td>Most interviews and meetings</td><td>Anything you'll quote or publish, or hard audio</td></tr>
-            </tbody>
-          </table>
-          <p>All three are the same Whisper model at different sizes, so they share languages and features; bigger just means fewer mistakes and more waiting. Not sure? Start with Standard, and rerun a file on Accurate if names or words come out wrong. Speaker detection is the same whichever you pick.</p>
-          <p>On a graphics card, Accurate uses Whisper large-v3-turbo, a newer and larger model that is usually more accurate still. It can't translate, so with Translate to English on, Accurate runs on the processor.</p>
-        </details>
-      </div>
       <div class="field">
         <label for="engine">Run on</label>
         <select id="engine">

@@ -51,22 +51,22 @@ are compiled to WebAssembly and run on your own CPU, inside the browser tab.
 
 ## How to use it
 
-The page walks you through three numbered steps.
+The page walks you through two numbered steps.
 
-**1. File options.** Optionally set the language and the number of
-speakers. Leaving them blank or at 0 means "detect automatically". If you
-know how many people speak, enter it: speaker labels come out much more
-accurate, especially in busy conversations where automatic detection can
-find too many speakers. The
+**1. Add your files.** Drag audio or video onto the drop zone, or click to
+choose. Anything your browser can play works (MP3, WAV, M4A, MP4, WebM, ...).
+Each file then waits in a list with its length and its own speaker count,
+language and translate choice, starting from the values set above the list.
+Leaving speakers at 0 means "detect automatically". If you know how many
+people speak, enter it: speaker labels come out much more accurate,
+especially in busy conversations where automatic detection can find too
+many speakers. Press **Start transcribing** when the list is right. The
 model and light/dark appearance live under **⚙️ Settings** at the top right,
 and both are remembered in your browser.
 
 <img src="docs/images/start.png" alt="The start of the page: the Settings button, and the file options step with speakers, language and a translate toggle" width="640" />
 
-**2. Add your files.** Drag audio or video onto the drop zone, or click to
-choose. Anything your browser can play works (MP3, WAV, M4A, MP4, WebM, ...).
-
-**3. Review and download.** Each file shows live progress, then **Open
+**2. Review and download.** Each file shows live progress, then **Open
 transcript** takes you to a full-page editor: the transcript as one
 document, a player for the original recording at the bottom, and the
 speakers on the side. Click a timestamp to hear that line (the line being

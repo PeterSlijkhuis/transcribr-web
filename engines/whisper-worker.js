@@ -115,6 +115,12 @@ importScripts("fetch-cached.js");
     return new Promise((resolve, reject) => {
       finish = () => resolve(segments.slice());
       const nthreads = Math.max(1, Math.min(8, (self.navigator.hardwareConcurrency || 4) - 1));
+      // full_default() copies the audio in through Module.HEAPU8. When an
+      // earlier file grew the engine's memory from one of its threads, that
+      // view still covers the old, smaller memory, and the copy fails with
+      // "Invalid typed array length: <samples>". The glue's own
+      // growMemViews() re-points the views at the current memory.
+      if (typeof self.growMemViews === "function") self.growMemViews();
       const ret = self.Module.full_default(instance, samples, language || "auto", nthreads, Boolean(translate));
       if (ret !== 0) {
         finish = null;

@@ -6,7 +6,7 @@
 // diarize in the sherpa worker while transcribing in the whisper worker,
 // merge here.
 import { assignSpeakers } from "./merge.js";
-import { speakerCount, fmtClock, renameSpeakers } from "./shared.js";
+import { speakerCount, fmtClock, renameSpeakers, timeLeft } from "./shared.js";
 import { downloadCsv } from "./export/csv.js";
 import { downloadJson } from "./export/json.js";
 import { downloadSrt } from "./export/srt.js";
@@ -75,7 +75,7 @@ function checkCompat() {
     simd = WebAssembly.validate(SIMD_PROBE);
   } catch (e) {}
   if (!simd) {
-    showCompatError("This browser can't run transcribr-web (no WebAssembly SIMD). Use a current desktop Chrome, Edge, Firefox or Safari.");
+    showCompatError("This browser can't run Transcribr (no WebAssembly SIMD). Use a current desktop Chrome, Edge, Firefox or Safari.");
     disablePicker("Unsupported browser, see the message above.");
     return false;
   }
@@ -85,7 +85,7 @@ function checkCompat() {
     disablePicker("Setting up, the page may reload once...");
     setTimeout(() => {
       showCompatError(
-        "This browser can't run transcribr-web (no cross-origin isolation / SharedArrayBuffer). " +
+        "This browser can't run Transcribr (no cross-origin isolation / SharedArrayBuffer). " +
           "Use a current desktop Chrome, Edge, Firefox or Safari, and make sure the page isn't opened from a file:// path."
       );
       disablePicker("Unsupported browser, see the message above.");
@@ -416,7 +416,8 @@ function stopEstimatedProgress(job) {
 function updateDoneStatus(job) {
   if (job.status !== "done") return;
   const n = speakerCount(job.rows);
-  setStatus(job, job.rows.length ? `Done: ${n} speaker${n === 1 ? "" : "s"}, ${fmtClock(job.durationSec)} long` : "Done: no speech found");
+  const took = job.tookSec ? `, took ${fmtClock(job.tookSec)}` : "";
+  setStatus(job, job.rows.length ? `Done: ${n} speaker${n === 1 ? "" : "s"}, ${fmtClock(job.durationSec)} long${took}` : "Done: no speech found");
 }
 
 // ---- Downloads -------------------------------------------------------------
@@ -942,6 +943,7 @@ async function processJob(job) {
   const language = languageInput.value || "auto";
   const numSpeakers = Math.min(20, Math.max(0, parseInt(numSpeakersInput.value, 10) || 0));
   job.translate = translateInput.checked;
+  const jobStart = performance.now();
 
   startEstimatedProgress(job, "Decoding audio", 1500);
   let decoded;
@@ -988,6 +990,7 @@ async function processJob(job) {
     const engine = onGpu ? gpu : whisper;
     job.model = onGpu ? `${model.onnx} (GPU)` : model.name;
     setStatus(job, "Transcribing");
+    let transcribeStart = null;
     // Preparing a model on some GPUs never finishes and never errors. If
     // the GPU worker goes quiet before transcription starts, kill it so the
     // CPU fallback below takes over.
@@ -1003,15 +1006,19 @@ async function processJob(job) {
       } else if (p.preparing) {
         setStatus(job, "Preparing the model on the graphics card");
       } else if (p.started) {
+        transcribeStart = performance.now();
         setStatus(job, "Transcribing");
       } else {
-        setStatus(job, "Transcribing", p.fraction);
+        transcribeStart ??= performance.now();
+        const left = timeLeft((performance.now() - transcribeStart) / 1000, p.fraction);
+        setStatus(job, left ? `Transcribing, ${left}` : "Transcribing", p.fraction);
       }
     };
     // Settings can change after ensureEngines, so this engine may not be
     // the one it loaded. load() is a no-op if it is.
     await engine.load(manifest, onProgress);
     if (onGpu) arm();
+    setGameAllowed(!onGpu);
     try {
       return await engine.request(
         { type: "transcribe", samples, language, translate: job.translate, modelUrl: onGpu ? model.onnx : model.url, dtype: model.onnxDtype },
@@ -1021,6 +1028,7 @@ async function processJob(job) {
       );
     } finally {
       clearTimeout(watchdog);
+      setGameAllowed(true);
     }
   };
   let tr;
@@ -1048,6 +1056,7 @@ async function processJob(job) {
   const dsegs = diar.segments.map((s) => ({ s: s.start, e: s.end, spk: s.speaker }));
 
   job.rows = assignSpeakers(tr.segments, dsegs);
+  job.tookSec = (performance.now() - jobStart) / 1000;
   finishJob(job);
 }
 
@@ -1193,6 +1202,13 @@ gameToggle.addEventListener("click", () => {
     gameToggle.blur(); // so space flaps instead of pressing "Hide game"
   }
 });
+
+// The graphics card can't draw the game smoothly while it transcribes, so
+// the game closes and its button hides until the file is done.
+function setGameAllowed(allowed) {
+  if (!allowed && stopGame) gameToggle.click();
+  gameToggle.hidden = !allowed;
+}
 
 if (checkCompat()) {
   engineBanner.hidden = false;

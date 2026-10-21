@@ -1113,3 +1113,28 @@ input[type="checkbox"] {
 .job-name {
   padding-right: 5.5rem;
 }
+
+/* ---- Credits ----------------------------------------------------------- */
+.credits {
+  margin-top: 2.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+.credits p { margin: 0 0 0.75rem; }
+.credits-small { font-size: 0.75rem; }
+.credits a { color: inherit; }
+.credits-partners {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.6rem 1.5rem;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+.credits-partners img { display: block; width: auto; }
+:root[data-theme="dark"] .credits-partners img { filter: invert(1) hue-rotate(180deg); }

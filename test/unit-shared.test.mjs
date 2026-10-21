@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { fmtClock, toTurns, speakerCount, renameSpeakers, timeLeft } from "../shared.js";
+import { fmtClock, toTurns, speakerCount, renameSpeakers, timeLeft, estimate } from "../shared.js";
 
 test("fmtClock formats mm:ss", () => {
   assert.equal(fmtClock(65), "01:05");
@@ -42,4 +42,10 @@ test("timeLeft extrapolates from the pace so far", () => {
   assert.equal(timeLeft(60, 0.02), "");
   assert.equal(timeLeft(60, 0.25), "about 3 min left");
   assert.equal(timeLeft(30, 0.9), "under a minute left");
+});
+
+test("estimate counts the slower of transcription and speaker detection", () => {
+  assert.equal(estimate(30, 4, 2), "under a minute");
+  assert.equal(estimate(600, 1, 2), "about 10 min");
+  assert.equal(estimate(600, 6, 2), "about 5 min");
 });

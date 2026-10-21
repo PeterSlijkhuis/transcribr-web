@@ -96,6 +96,8 @@
         <button type="button" id="game-toggle" class="btn btn-sm btn-ghost">&#127918; Play while you wait</button>
         <canvas id="flappy-canvas" width="280" height="360" hidden></canvas>
       </div>
+      <p class="tab-warning">&#9888;&#65039; Your files and transcripts live only in this browser tab. Closing or reloading it loses them, including files still in progress, so download what you need first.</p>
+      <button type="button" id="clear-done" class="btn btn-sm btn-ghost" hidden>Clear finished files</button>
       <ul id="job-list"></ul>
       </div>
     </div>
@@ -220,6 +222,12 @@
         </select>
       </div>
       <p class="hint">Saved in this browser.</p>
+      <div class="field">
+        <label>Downloaded engines and models</label>
+        <p class="hint" id="cache-size">Checking...</p>
+        <button type="button" id="cache-clear" class="btn btn-sm btn-ghost">Delete downloads</button>
+        <p class="hint">Kept so the next visit starts right away. Deleting them frees the space; the next file downloads them again.</p>
+      </div>
       <div class="settings-actions"><button class="btn btn-sm">Done</button></div>
     </form>
   </dialog>

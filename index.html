@@ -65,7 +65,7 @@
         <div class="field">
           <label for="num-speakers">Speakers</label>
           <input type="number" id="num-speakers" min="0" max="20" value="0" />
-          <p class="hint">0 = detect automatically. Know how many people speak? Enter it for much more accurate speakers.</p>
+          <p class="hint">0 = detect automatically. Know how many people speak? Enter it for much more accurate speakers. 1 skips speaker detection, which is faster.</p>
         </div>
         <div class="field">
           <label for="language">Language</label>
@@ -90,7 +90,7 @@
         <p>All three are the same Whisper model at different sizes, so they share languages and features; bigger just means fewer mistakes and more waiting. Not sure? Start with Standard, and rerun a file on Accurate if names or words come out wrong. Speaker detection is the same whichever you pick.</p>
         <p>On a graphics card, Accurate uses Whisper large-v3-turbo, a newer and larger model that is usually more accurate still. It can't translate, so with Translate to English on, Accurate runs on the processor.</p>
       </details>
-      <p class="hint">These are the starting values for each file you add. Change them per file in the list below before you start. Each file shows a rough time, which gets more accurate once a file has finished on this device. The first run also downloads the model.</p>
+      <p class="hint">These apply to every file in the list below. To change one file only, use its own row before you start. Each file shows a rough time, which gets more accurate once a file has finished on this device. The first run also downloads the model.</p>
       <div id="staged" hidden>
         <ul id="staged-list"></ul>
         <button type="button" id="start" class="btn">Start transcribing</button>

@@ -51,6 +51,12 @@ const translateInput = document.getElementById("translate");
   LANGUAGES.map((code) => [code, nameOf(code)])
     .sort((a, b) => a[1].localeCompare(b[1]))
     .forEach(([code, name]) => languageInput.add(new Option(name, code)));
+  // Remembered per browser, like the model: most people transcribe one language.
+  const saved = savedSetting("language");
+  if (saved && LANGUAGES.includes(saved)) languageInput.value = saved;
+  languageInput.addEventListener("change", () => {
+    try { localStorage.setItem("language", languageInput.value); } catch (e) {}
+  });
 }
 
 // ---- Compatibility -------------------------------------------------------
@@ -305,8 +311,9 @@ function updateEstimate(li) {
   if (!manifest || !li.durationSec) return;
   const model = selectedModel(li.querySelector(".staged-model").value);
   const onGpu = useGpu(model, li.querySelector(".staged-translate").checked);
+  const solo = li.querySelector(".staged-speakers").value === "1"; // no speaker detection
   li.querySelector(".staged-estimate").textContent =
-    `Takes ${estimate(li.durationSec, speed(`${model.id}:${onGpu ? "gpu" : "cpu"}`), speed("diar"))} with ${model.label.split(" (")[0]} on the ${onGpu ? "graphics card" : "processor"}`;
+    `Takes ${estimate(li.durationSec, speed(`${model.id}:${onGpu ? "gpu" : "cpu"}`), solo ? Infinity : speed("diar"))} with ${model.label.split(" (")[0]} on the ${onGpu ? "graphics card" : "processor"}`;
 }
 
 function describeHardware() {
@@ -1168,13 +1175,15 @@ async function processJob(job) {
   // It gets its own copy, since whisper takes the samples.
   // Its progress shows while the file waits for its turn to transcribe and
   // after transcription; during transcription it's only kept.
-  const diarizer = takeDiarizer();
+  // With one speaker there is nobody to tell apart, so skip detection.
+  const solo = numSpeakers === 1;
+  const diarizer = solo ? null : takeDiarizer();
   job.diarizer = diarizer;
-  const diarSamples = samples.slice();
+  const diarSamples = solo ? null : samples.slice();
   let diarFraction = 0;
-  let diarStage = "Detecting speakers, transcribes next";
-  let showDiar = true;
-  const diarizing = diarizer.load(manifest).then(async () => {
+  let diarStage = solo ? "Waiting to transcribe" : "Detecting speakers, transcribes next";
+  let showDiar = !solo;
+  const diarizing = solo ? Promise.resolve({ segments: [] }) : diarizer.load(manifest).then(async () => {
     const start = performance.now();
     const result = await diarizer.request({ type: "diarize", samples: diarSamples, numSpeakers }, [diarSamples.buffer], (p) => {
       diarFraction = p.fraction;
@@ -1259,9 +1268,11 @@ async function processJob(job) {
       release();
     }
 
-    showDiar = true;
-    diarStage = "Detecting speakers";
-    setStatus(job, diarStage, diarFraction);
+    if (!solo) {
+      showDiar = true;
+      diarStage = "Detecting speakers";
+      setStatus(job, diarStage, diarFraction);
+    }
     const diar = await diarizing;
     const dsegs = diar.segments.map((s) => ({ s: s.start, e: s.end, spk: s.speaker }));
 
@@ -1271,7 +1282,7 @@ async function processJob(job) {
   } finally {
     // Let the diarization worker finish before another file uses it.
     await diarizing.catch(() => {});
-    diarizer.busy = false;
+    if (diarizer) diarizer.busy = false;
     job.diarizer = null;
   }
 }
@@ -1389,6 +1400,7 @@ function stageFile(file) {
   };
   media.onerror = () => URL.revokeObjectURL(media.src);
   li.querySelector(".staged-speakers").value = numSpeakersInput.value;
+  li.querySelector(".staged-speakers").oninput = () => updateEstimate(li);
   const language = languageInput.cloneNode(true);
   language.removeAttribute("id");
   language.className = "staged-language";
@@ -1424,6 +1436,22 @@ startButton.addEventListener("click", () => {
   }
   updateStaged();
 });
+
+// The fields above set every file in the list; a file's own row changes
+// only that file.
+for (const [input, cls, prop] of [
+  [modelSelect, "staged-model", "value"],
+  [numSpeakersInput, "staged-speakers", "value"],
+  [languageInput, "staged-language", "value"],
+  [translateInput, "staged-translate", "checked"],
+]) {
+  input.addEventListener("input", () => {
+    for (const li of stagedList.children) {
+      li.querySelector("." + cls)[prop] = input[prop];
+      updateEstimate(li);
+    }
+  });
+}
 
 function queueFiles(fileList) {
   if (fileInput.disabled) return;

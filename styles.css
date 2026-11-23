@@ -862,6 +862,13 @@ input[type="checkbox"] {
   font-weight: 650;
   color: hsl(var(--hue), 60%, var(--speaker-l));
 }
+.speaker-merge {
+  flex: 0 0 auto;
+  width: 5.2rem;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
 .speaker-remove {
   font: inherit;
   font-weight: 700;

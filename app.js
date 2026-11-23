@@ -706,15 +706,16 @@ function addSpeaker(job) {
 }
 document.getElementById("add-speaker").addEventListener("click", () => addSpeaker(current));
 
-// Removing a speaker moves its lines onto whichever other speaker sorts
-// first. The last remaining speaker can't be removed, so there's always
-// somewhere for them to go.
-function removeSpeaker(job, id) {
+// Removing a speaker moves its lines onto another speaker: the one picked
+// in "Merge into", else whichever sorts first. The last remaining speaker
+// can't be removed, so there's always somewhere for them to go.
+function removeSpeaker(job, id, into) {
   const others = allSpeakerIds(job).filter((s) => s !== id);
   if (!others.length) return;
+  const target = others.includes(into) ? into : others[0];
   checkpoint(job);
   for (const row of job.rows) {
-    if (row.speaker_id === id) row.speaker_id = others[0];
+    if (row.speaker_id === id) row.speaker_id = target;
   }
   delete job.names[id];
   job.extraSpeakers = job.extraSpeakers.filter((s) => s !== id);
@@ -746,7 +747,17 @@ function renderSpeakers(job) {
       remove.title = `Remove ${job.names[id] || id} (their lines go to another speaker)`;
       remove.disabled = ids.length < 2;
       remove.addEventListener("click", () => removeSpeaker(job, id));
-      li.append(input, remove);
+      // Automatic detection often splits one person in two: merge that
+      // speaker into the right one instead of whichever sorts first.
+      const merge = document.createElement("select");
+      merge.className = "speaker-merge";
+      merge.setAttribute("aria-label", `Merge ${job.names[id] || id} into another speaker`);
+      merge.title = "Give this speaker's lines to another speaker and remove this one";
+      merge.add(new Option("Merge into", ""));
+      for (const other of ids) if (other !== id) merge.add(new Option(job.names[other] || other, other));
+      merge.hidden = ids.length < 2;
+      merge.addEventListener("change", () => removeSpeaker(job, id, merge.value));
+      li.append(input, merge, remove);
       return li;
     })
   );
@@ -1154,7 +1165,7 @@ async function processJob(job) {
   if (job.cancelled) return;
   const { samples, durationSec } = decoded;
   job.durationSec = durationSec;
-  if (durationSec > LONG_RECORDING_WARN_SEC && !job.longOk) {
+  if (durationSec > LONG_RECORDING_WARN_SEC && !job.longOk && !job.opts.longOk) {
     setStatus(job, "Waiting for you");
     if (!(await askLongRecording(job))) {
       job.status = "skipped";
@@ -1394,6 +1405,13 @@ function stageFile(file) {
     if (Number.isFinite(media.duration)) {
       info.textContent = `${fmtClock(media.duration)} · ${info.textContent}`;
       li.durationSec = media.duration;
+      // Say so before Start, not after the file has been decoded.
+      if (media.duration > LONG_RECORDING_WARN_SEC) {
+        const warn = document.createElement("span");
+        warn.className = "hint staged-long";
+        warn.textContent = "Over an hour: may be slow or run out of memory in this tab. Splitting the file helps.";
+        li.querySelector(".staged-name").append(warn);
+      }
       updateEstimate(li);
     }
     URL.revokeObjectURL(media.src);
@@ -1431,6 +1449,7 @@ startButton.addEventListener("click", () => {
       language: li.querySelector(".staged-language").value || "auto",
       translate: li.querySelector(".staged-translate").checked,
       model: li.querySelector(".staged-model").value,
+      longOk: li.querySelector(".staged-long") !== null, // warned in the list, so don't stop the queue to ask again
     });
     li.remove();
   }

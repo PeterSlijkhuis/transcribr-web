@@ -25,10 +25,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Cache emsdk
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: engines-build/emsdk
           key: emsdk-4.0.23
@@ -43,7 +43,7 @@ jobs:
           fi
 
       - name: Cache whisper.cpp checkout
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: engines-build/whisper/src
           key: whisper-src-4523d0ce373ee4b2176b3251fff29fd4864fcf38
@@ -55,6 +55,9 @@ jobs:
         run: |
           mkdir -p engines-build/whisper/dist/models
           curl -fsSL --retry 3 --retry-all-errors -o engines-build/whisper/dist/models/ggml-base.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
+
+      - name: Fetch the Silero skip-silence model (for the test harness)
+        run: curl -fsSL --retry 3 --retry-all-errors -o engines-build/whisper/dist/models/ggml-silero-v5.1.2.bin https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin
 
       - name: Test whisper.wasm
         run: |
@@ -77,10 +80,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Cache emsdk
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: engines-build/emsdk
           key: emsdk-4.0.23
@@ -95,7 +98,7 @@ jobs:
           fi
 
       - name: Cache sherpa-onnx checkout
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: engines-build/sherpa/src
           key: sherpa-src-11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf

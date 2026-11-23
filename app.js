@@ -45,8 +45,13 @@ const translateInput = document.getElementById("translate");
 {
   let names = null;
   try { names = new Intl.DisplayNames([navigator.language, "en"], { type: "language" }); } catch (e) {}
+  // Chromium has no name for these two, and shows the bare code.
+  const ENGLISH = { ba: "Bashkir", bo: "Tibetan" };
   const nameOf = (code) => {
-    try { return (names && names.of(code === "jw" ? "jv" : code)) || code; } catch (e) { return code; }
+    try {
+      const name = names && names.of(code === "jw" ? "jv" : code);
+      return name && name !== code ? name : ENGLISH[code] || code;
+    } catch (e) { return ENGLISH[code] || code; }
   };
   LANGUAGES.map((code) => [code, nameOf(code)])
     .sort((a, b) => a[1].localeCompare(b[1]))

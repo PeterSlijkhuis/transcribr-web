@@ -1,0 +1,33 @@
+# .github/workflows/sync-development.yml
+# After every push to master (a merged pull request, mostly), merge master
+# into development, so development is never "one behind". A merge, not a
+# rebase: no history is rewritten. If it ever conflicts the run goes red and
+# development is left as it was.
+name: Sync development
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    # Not in forks: they have no development branch to commit to.
+    if: ${{ github.repository == 'PeterSlijkhuis/transcribr-web' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: development
+          fetch-depth: 0
+      - name: Merge master into development
+        run: |
+          git config user.name "Peter J.H. Slijkhuis"
+          git config user.email "peter@slijkhuis.one"
+          git fetch origin master
+          git merge origin/master -m "Merge master into development"
+          git push origin development

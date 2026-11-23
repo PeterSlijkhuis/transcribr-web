@@ -1,0 +1,46 @@
+# .github/workflows/open-pull-request.yml
+# Whenever development has changes master lacks (your own pushes, Dependabot,
+# the weekly model check), make sure one pull request into master is open.
+# Merging it stays yours.
+# A pull request opened with the workflow token doesn't start the checks by
+# itself, and neither do commits the token pushes, so in those cases the test
+# workflow is started by hand on development; its results show on the PR.
+# Needs "Allow GitHub Actions to create and approve pull requests" under
+# Settings > Actions > General.
+name: Open pull request
+
+on:
+  push:
+    branches: [development]
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: write
+
+jobs:
+  open:
+    if: ${{ github.repository == 'PeterSlijkhuis/transcribr-web' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Open the pull request if there is none
+        run: |
+          # Files that differ, not commits: a "Merge master into development" alone is nothing to ship.
+          changed=$(gh api "repos/$GITHUB_REPOSITORY/compare/master...development" --jq '.files | length')
+          [ "$changed" -gt 0 ] || { echo "development has nothing master lacks"; exit 0; }
+          open=$(gh pr list --base master --head development --state open --json number --jq length)
+          started=no
+          if [ "$open" = 0 ]; then
+            gh pr create --base master --head development --assignee PeterSlijkhuis \
+              --title "Changes from development" \
+              --body "Opened automatically because development has changes master lacks. Check the results below, then merge."
+            started=yes
+          fi
+          # Checks don't start for a token-opened PR or a token push.
+          if [ "$started" = yes ] || [ "$GITHUB_ACTOR" = "github-actions[bot]" ]; then
+            gh workflow run deploy-pages.yml --ref development
+          fi

@@ -26,11 +26,11 @@ jobs:
       - name: Stop if the token isn't set up
         run: |
           [ -n "$TOKEN" ] || { echo "::error::Add the AUTOMATION_TOKEN secret (see the top of this workflow)."; exit 1; }
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: development
           token: ${{ secrets.AUTOMATION_TOKEN }}
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: Update the actions and commit

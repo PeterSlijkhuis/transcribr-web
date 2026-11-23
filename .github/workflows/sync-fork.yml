@@ -1,0 +1,29 @@
+# .github/workflows/sync-fork.yml
+# Only does anything in a fork of this repository: once a day, bring the
+# fork's master up to date with the original. It's a fast-forward, so if the
+# fork has commits of its own on master the run goes red instead of
+# overwriting them. Scheduled workflows are off in a new fork until the
+# fork's owner enables them under its Actions tab.
+# Limit: GITHUB_TOKEN may not change files under .github/workflows, so a
+# sync that includes a workflow change fails; press "Sync fork" on the
+# fork's page that time.
+name: Sync fork
+
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: ${{ github.repository != 'PeterSlijkhuis/transcribr-web' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Sync master with the original repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh repo sync "$GITHUB_REPOSITORY" --branch master

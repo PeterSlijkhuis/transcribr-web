@@ -18,6 +18,8 @@ permissions:
 
 jobs:
   check:
+    # Not in forks: they have no development branch to commit to.
+    if: ${{ github.repository == 'PeterSlijkhuis/transcribr-web' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

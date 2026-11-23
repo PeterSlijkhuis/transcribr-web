@@ -125,7 +125,8 @@ jobs:
 
   publish:
     needs: [build-whisper, build-sherpa]
-    if: ${{ github.event.inputs.publish == 'true' }}
+    # Only in the original repository: a fork has no HF_TOKEN, and must never upload to this Hugging Face repo.
+    if: ${{ github.event.inputs.publish == 'true' && github.repository == 'PeterSlijkhuis/transcribr-web' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

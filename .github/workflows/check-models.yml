@@ -1,0 +1,51 @@
+# .github/workflows/check-models.yml
+# Once a week: are the model and engine downloads in engines/manifest.json
+# still there, and has upstream published anything newer? Opens (or adds to)
+# one issue when there is something to look at. When a model file the app
+# uses was replaced upstream, it also commits a new modelsVersion to
+# `development` (you open the pull request); the site then offers visitors an
+# "Update models" button. Nothing else is changed.
+name: Weekly model check
+
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays, 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: development
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Check
+        run: node scripts/check-models.mjs
+      - name: Commit a model update to development
+        run: |
+          git config user.name "Peter J.H. Slijkhuis"
+          git config user.email "peter@slijkhuis.one"
+          git add scripts/model-hashes.json engines/manifest.json
+          git diff --cached --quiet && exit 0
+          [ -f commit.txt ] || echo "Record the model file hashes the weekly check saw" > commit.txt
+          git commit -F commit.txt
+          git push origin HEAD:development
+      - name: Open or update the issue
+        if: ${{ hashFiles('report.md') != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          n=$(gh issue list --state open --search '"Weekly model check" in:title' --json number --jq '.[0].number')
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --body-file report.md
+          else
+            gh issue create --title "Weekly model check" --body-file report.md
+          fi

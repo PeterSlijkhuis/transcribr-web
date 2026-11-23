@@ -232,6 +232,55 @@ async function loadManifest() {
   return manifest;
 }
 
+// ---- Updated models -----------------------------------------------------------
+// The weekly check bumps manifest.modelsVersion when a model file was replaced
+// upstream. What a visitor has saved keeps being used, since it may be the one
+// their earlier transcripts came from; the banner's button drops the saved
+// copies so the next file downloads the new ones.
+
+const modelsBanner = document.getElementById("models-banner");
+const modelsUpdate = document.getElementById("models-update");
+const modelsBannerText = document.getElementById("models-banner-text");
+const MODELS_NOTE = modelsBannerText.textContent;
+
+async function savedModelUrls(m) {
+  try {
+    const cache = await caches.open(ENGINE_CACHE_PREFIX + m.version);
+    const urls = [];
+    for (const model of m.whisper.models) if (await cache.match(model.url)) urls.push(model.url);
+    return urls;
+  } catch (e) {
+    return [];
+  }
+}
+
+function rememberModelsVersion(m) {
+  try { localStorage.setItem("modelsVersion", m.modelsVersion); } catch (e) {}
+}
+
+async function checkModelUpdate(m) {
+  if (!m.modelsVersion) return;
+  const seen = savedSetting("modelsVersion");
+  if (seen === m.modelsVersion) return;
+  // First visit, or nothing saved: whatever downloads next is the current one.
+  if (seen === null || !(await savedModelUrls(m)).length) return rememberModelsVersion(m);
+  modelsBanner.hidden = false;
+}
+
+modelsUpdate.addEventListener("click", async () => {
+  if (active > 0) {
+    modelsBannerText.textContent = "Wait for the running files to finish, then press Update models.";
+    return;
+  }
+  const cache = await caches.open(ENGINE_CACHE_PREFIX + manifest.version);
+  for (const url of await savedModelUrls(manifest)) await cache.delete(url);
+  // The engine keeps the model it loaded; a fresh one loads the new file.
+  whisper.crash(new Error("models updated"));
+  rememberModelsVersion(manifest);
+  modelsBannerText.textContent = MODELS_NOTE;
+  modelsBanner.hidden = true;
+});
+
 // ---- Picking the fastest setup for this device ----------------------------
 
 // What this device offers, detected once. A software ("fallback") WebGPU
@@ -706,15 +755,16 @@ function addSpeaker(job) {
 }
 document.getElementById("add-speaker").addEventListener("click", () => addSpeaker(current));
 
-// Removing a speaker moves its lines onto whichever other speaker sorts
-// first. The last remaining speaker can't be removed, so there's always
-// somewhere for them to go.
-function removeSpeaker(job, id) {
+// Removing a speaker moves its lines onto another speaker: the one picked
+// in "Merge into", else whichever sorts first. The last remaining speaker
+// can't be removed, so there's always somewhere for them to go.
+function removeSpeaker(job, id, into) {
   const others = allSpeakerIds(job).filter((s) => s !== id);
   if (!others.length) return;
+  const target = others.includes(into) ? into : others[0];
   checkpoint(job);
   for (const row of job.rows) {
-    if (row.speaker_id === id) row.speaker_id = others[0];
+    if (row.speaker_id === id) row.speaker_id = target;
   }
   delete job.names[id];
   job.extraSpeakers = job.extraSpeakers.filter((s) => s !== id);
@@ -746,7 +796,17 @@ function renderSpeakers(job) {
       remove.title = `Remove ${job.names[id] || id} (their lines go to another speaker)`;
       remove.disabled = ids.length < 2;
       remove.addEventListener("click", () => removeSpeaker(job, id));
-      li.append(input, remove);
+      // Automatic detection often splits one person in two: merge that
+      // speaker into the right one instead of whichever sorts first.
+      const merge = document.createElement("select");
+      merge.className = "speaker-merge";
+      merge.setAttribute("aria-label", `Merge ${job.names[id] || id} into another speaker`);
+      merge.title = "Give this speaker's lines to another speaker and remove this one";
+      merge.add(new Option("Merge into", ""));
+      for (const other of ids) if (other !== id) merge.add(new Option(job.names[other] || other, other));
+      merge.hidden = ids.length < 2;
+      merge.addEventListener("change", () => removeSpeaker(job, id, merge.value));
+      li.append(input, merge, remove);
       return li;
     })
   );
@@ -1154,7 +1214,7 @@ async function processJob(job) {
   if (job.cancelled) return;
   const { samples, durationSec } = decoded;
   job.durationSec = durationSec;
-  if (durationSec > LONG_RECORDING_WARN_SEC && !job.longOk) {
+  if (durationSec > LONG_RECORDING_WARN_SEC && !job.longOk && !job.opts.longOk) {
     setStatus(job, "Waiting for you");
     if (!(await askLongRecording(job))) {
       job.status = "skipped";
@@ -1394,6 +1454,13 @@ function stageFile(file) {
     if (Number.isFinite(media.duration)) {
       info.textContent = `${fmtClock(media.duration)} · ${info.textContent}`;
       li.durationSec = media.duration;
+      // Say so before Start, not after the file has been decoded.
+      if (media.duration > LONG_RECORDING_WARN_SEC) {
+        const warn = document.createElement("span");
+        warn.className = "hint staged-long";
+        warn.textContent = "Over an hour: may be slow or run out of memory in this tab. Splitting the file helps.";
+        li.querySelector(".staged-name").append(warn);
+      }
       updateEstimate(li);
     }
     URL.revokeObjectURL(media.src);
@@ -1431,6 +1498,7 @@ startButton.addEventListener("click", () => {
       language: li.querySelector(".staged-language").value || "auto",
       translate: li.querySelector(".staged-translate").checked,
       model: li.querySelector(".staged-model").value,
+      longOk: li.querySelector(".staged-long") !== null, // warned in the list, so don't stop the queue to ask again
     });
     li.remove();
   }
@@ -1566,7 +1634,12 @@ if (checkCompat()) {
   engineStatus.textContent =
     "The first file you add downloads the transcription and speaker engines (about 320 MB with the standard model). They are cached for next time.";
 }
-loadManifest().then(fillModelPicker).catch(() => {}); // ensureEngines retries and reports
+loadManifest()
+  .then(async (m) => {
+    await fillModelPicker(m);
+    await checkModelUpdate(m);
+  })
+  .catch(() => {}); // ensureEngines retries and reports
 
 translateInput.addEventListener("change", updateModelHint);
 gpuPrefSelect.addEventListener("change", async () => {

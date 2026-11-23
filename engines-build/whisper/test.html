@@ -47,7 +47,12 @@
     document.getElementById("run").disabled = true;
     await loadModel();
     const audio = await decodeFixture("../fixtures/single-speaker.wav");
-    const ret = Module.full_default(instance, audio, "en", 4, false);
+    // With the skip-silence model, as the app uses it: the expected words
+    // must still come out.
+    const vad = new Uint8Array(await (await fetch("./dist/models/ggml-silero-v5.1.2.bin")).arrayBuffer());
+    try { Module.FS_unlink("vad.bin"); } catch (e) {}
+    Module.FS_createDataFile("/", "vad.bin", vad, true, true);
+    const ret = Module.full_default(instance, audio, "en", 4, false, "vad.bin");
     log("full_default returned " + ret);
   }
 </script>

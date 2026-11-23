@@ -19,6 +19,23 @@ fi
 source ../emsdk/emsdk_env.sh
 
 cd src
+# Skip-silence support: full_default() gets a 6th argument, the path of a
+# Silero VAD model in the engine's filesystem ("" = off). whisper.cpp then
+# drops the silent stretches before encoding and maps timestamps back, so
+# the encoder (about 90% of the time on the CPU) runs on fewer 30 s windows.
+# The patch is applied once; the src checkout is cached by CI.
+python3 - <<'PY'
+from pathlib import Path
+p = Path("examples/whisper.wasm/emscripten.cpp")
+s = p.read_text()
+if "vad_model" not in s:
+    a = "int nthreads, bool translate)"
+    b = "        params.offset_ms        = 0;\n"
+    assert s.count(a) == 1 and s.count(b) == 1, "emscripten.cpp changed: update this patch"
+    s = s.replace(a, "int nthreads, bool translate, const std::string & vad_model)")
+    s = s.replace(b, b + "        if (!vad_model.empty()) {\n            params.vad            = true;\n            params.vad_model_path = strdup(vad_model.c_str());\n        }\n")
+    p.write_text(s)
+PY
 mkdir -p build-em
 cd build-em
 emcmake cmake -DWHISPER_WASM_SINGLE_FILE=OFF ..

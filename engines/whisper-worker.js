@@ -18,7 +18,9 @@ importScripts("fetch-cached.js");
 (function () {
   let instance = 0;
   let modelUrl = null;
+  let vadReady = false;
   let cacheVersion = null;
+  let vadUrl = null; // manifest whisper.vadUrl: only engines built with skip-silence support have it
   let segments = [];
   let durationSec = 0;
   let finish = null;
@@ -68,6 +70,7 @@ importScripts("fetch-cached.js");
     const jsUrl = URL.createObjectURL(await transcribrFetchCached.fetchCachedBlob(w.libJsUrl, version, progress("whisper engine")));
     const wasmUrl = URL.createObjectURL(await transcribrFetchCached.fetchCachedBlob(w.wasmUrl, version, progress("whisper engine")));
 
+    vadUrl = w.vadUrl || null;
     await new Promise((resolve, reject) => {
       self.Module = {
         print: onPrint,
@@ -110,8 +113,19 @@ importScripts("fetch-cached.js");
     modelUrl = url;
   }
 
+  // The small Silero model that finds speech, so silent stretches aren't
+  // encoded. Only for engines whose full_default() takes it as 6th argument.
+  async function ensureVad() {
+    if (!vadUrl || vadReady) return;
+    const blob = await transcribrFetchCached.fetchCachedBlob(vadUrl, cacheVersion, progress("silence model"));
+    try { self.Module.FS_unlink("vad.bin"); } catch (e) {}
+    self.Module.FS_createDataFile("/", "vad.bin", new Uint8Array(await blob.arrayBuffer()), true, true);
+    vadReady = true;
+  }
+
   async function transcribe(samples, language, translate, url) {
     await ensureModel(url);
+    await ensureVad();
     self.postMessage({ type: "progress", started: true });
     segments = [];
     durationSec = samples.length / 16000;
@@ -124,7 +138,9 @@ importScripts("fetch-cached.js");
       // "Invalid typed array length: <samples>". The glue's own
       // growMemViews() re-points the views at the current memory.
       if (typeof self.growMemViews === "function") self.growMemViews();
-      const ret = self.Module.full_default(instance, samples, language || "auto", nthreads, Boolean(translate));
+      const args = [instance, samples, language || "auto", nthreads, Boolean(translate)];
+      if (vadUrl) args.push("vad.bin");
+      const ret = self.Module.full_default(...args);
       if (ret !== 0) {
         finish = null;
         reject(new Error("whisper engine refused the audio (code " + ret + ")"));

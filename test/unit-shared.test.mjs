@@ -48,4 +48,5 @@ test("estimate counts the slower of transcription and speaker detection", () => 
   assert.equal(estimate(30, 4, 2), "under a minute");
   assert.equal(estimate(600, 1, 2), "about 10 min");
   assert.equal(estimate(600, 6, 2), "about 5 min");
+  assert.equal(estimate(600, 6, Infinity), "about 2 min"); // one speaker: no speaker detection
 });

@@ -50,6 +50,9 @@ importScripts("fetch-cached.js");
   // whisper_full() is done, which logs "whisper_print_timings: total time"
   // to stderr. That line is the completion signal.
   function onPrintErr(line) {
+    // Where the time went (load, mel, encode, decode, ...), for the CI log
+    // and the browser console.
+    if (/^whisper_print_timings:/.test(line)) console.log(line);
     if (finish && /whisper_print_timings:\s+total time/.test(line)) {
       const f = finish;
       finish = null;

@@ -25,10 +25,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Cache emsdk
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: engines-build/emsdk
           key: emsdk-4.0.23
@@ -43,7 +43,7 @@ jobs:
           fi
 
       - name: Cache whisper.cpp checkout
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: engines-build/whisper/src
           key: whisper-src-4523d0ce373ee4b2176b3251fff29fd4864fcf38
@@ -70,7 +70,7 @@ jobs:
 
       - name: Upload whisper dist as a workflow artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: whisper-dist
           path: engines-build/whisper/dist/
@@ -80,10 +80,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Cache emsdk
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: engines-build/emsdk
           key: emsdk-4.0.23
@@ -98,7 +98,7 @@ jobs:
           fi
 
       - name: Cache sherpa-onnx checkout
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: engines-build/sherpa/src
           key: sherpa-src-11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf
@@ -117,7 +117,7 @@ jobs:
 
       - name: Upload sherpa dist as a workflow artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sherpa-dist
           path: engines-build/sherpa/dist/
@@ -130,12 +130,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: whisper-dist
           path: staged/whisper
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: sherpa-dist
           path: staged/sherpa

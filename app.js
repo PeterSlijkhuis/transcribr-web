@@ -232,6 +232,55 @@ async function loadManifest() {
   return manifest;
 }
 
+// ---- Updated models -----------------------------------------------------------
+// The weekly check bumps manifest.modelsVersion when a model file was replaced
+// upstream. What a visitor has saved keeps being used, since it may be the one
+// their earlier transcripts came from; the banner's button drops the saved
+// copies so the next file downloads the new ones.
+
+const modelsBanner = document.getElementById("models-banner");
+const modelsUpdate = document.getElementById("models-update");
+const modelsBannerText = document.getElementById("models-banner-text");
+const MODELS_NOTE = modelsBannerText.textContent;
+
+async function savedModelUrls(m) {
+  try {
+    const cache = await caches.open(ENGINE_CACHE_PREFIX + m.version);
+    const urls = [];
+    for (const model of m.whisper.models) if (await cache.match(model.url)) urls.push(model.url);
+    return urls;
+  } catch (e) {
+    return [];
+  }
+}
+
+function rememberModelsVersion(m) {
+  try { localStorage.setItem("modelsVersion", m.modelsVersion); } catch (e) {}
+}
+
+async function checkModelUpdate(m) {
+  if (!m.modelsVersion) return;
+  const seen = savedSetting("modelsVersion");
+  if (seen === m.modelsVersion) return;
+  // First visit, or nothing saved: whatever downloads next is the current one.
+  if (seen === null || !(await savedModelUrls(m)).length) return rememberModelsVersion(m);
+  modelsBanner.hidden = false;
+}
+
+modelsUpdate.addEventListener("click", async () => {
+  if (active > 0) {
+    modelsBannerText.textContent = "Wait for the running files to finish, then press Update models.";
+    return;
+  }
+  const cache = await caches.open(ENGINE_CACHE_PREFIX + manifest.version);
+  for (const url of await savedModelUrls(manifest)) await cache.delete(url);
+  // The engine keeps the model it loaded; a fresh one loads the new file.
+  whisper.crash(new Error("models updated"));
+  rememberModelsVersion(manifest);
+  modelsBannerText.textContent = MODELS_NOTE;
+  modelsBanner.hidden = true;
+});
+
 // ---- Picking the fastest setup for this device ----------------------------
 
 // What this device offers, detected once. A software ("fallback") WebGPU
@@ -1585,7 +1634,12 @@ if (checkCompat()) {
   engineStatus.textContent =
     "The first file you add downloads the transcription and speaker engines (about 320 MB with the standard model). They are cached for next time.";
 }
-loadManifest().then(fillModelPicker).catch(() => {}); // ensureEngines retries and reports
+loadManifest()
+  .then(async (m) => {
+    await fillModelPicker(m);
+    await checkModelUpdate(m);
+  })
+  .catch(() => {}); // ensureEngines retries and reports
 
 translateInput.addEventListener("change", updateModelHint);
 gpuPrefSelect.addEventListener("change", async () => {

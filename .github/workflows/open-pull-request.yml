@@ -2,11 +2,11 @@
 # Whenever development has changes master lacks (your own pushes, Dependabot,
 # the weekly model check), make sure one pull request into master is open.
 # Merging it stays yours.
-# A pull request opened with the workflow token doesn't start the checks by
-# itself, and neither do commits the token pushes, so in those cases the test
-# workflow is started by hand on development; its results show on the PR.
-# Needs "Allow GitHub Actions to create and approve pull requests" under
-# Settings > Actions > General.
+# With the AUTOMATION_TOKEN secret (see update-actions.yml) the pull request is
+# opened as you and its checks start by themselves. Without it the built-in
+# token is used, which needs "Allow GitHub Actions to create and approve pull
+# requests" under Settings > Actions > General, and doesn't start checks, so
+# the test workflow is started by hand on development.
 name: Open pull request
 
 on:
@@ -24,7 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      GH_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ secrets.AUTOMATION_TOKEN || github.token }}
+      HAVE_PAT: ${{ secrets.AUTOMATION_TOKEN != '' }}
       GH_REPO: ${{ github.repository }}
     steps:
       - name: Open the pull request if there is none
@@ -40,7 +41,7 @@ jobs:
               --body "Opened automatically because development has changes master lacks. Check the results below, then merge."
             started=yes
           fi
-          # Checks don't start for a token-opened PR or a token push.
-          if [ "$started" = yes ] || [ "$GITHUB_ACTOR" = "github-actions[bot]" ]; then
+          # Checks don't start for a PR opened, or a push made, with the built-in token.
+          if [ "$HAVE_PAT" != true ] && { [ "$started" = yes ] || [ "$GITHUB_ACTOR" = "github-actions[bot]" ]; }; then
             gh workflow run deploy-pages.yml --ref development
           fi

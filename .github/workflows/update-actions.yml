@@ -1,0 +1,44 @@
+# .github/workflows/update-actions.yml
+# Every Monday: move the actions the workflows use to their newest major
+# version and commit that to development, in your name. The pull request
+# into master then shows whether the new versions work.
+# Needs a repository secret AUTOMATION_TOKEN: a fine-grained personal access
+# token for this repository with Contents and Workflows set to read and write.
+# The built-in token isn't allowed to change files under .github/workflows.
+name: Update actions
+
+on:
+  schedule:
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  update:
+    if: ${{ github.repository == 'PeterSlijkhuis/transcribr-web' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TOKEN: ${{ secrets.AUTOMATION_TOKEN }}
+    steps:
+      - name: Stop if the token isn't set up
+        run: |
+          [ -n "$TOKEN" ] || { echo "::error::Add the AUTOMATION_TOKEN secret (see the top of this workflow)."; exit 1; }
+      - uses: actions/checkout@v6
+        with:
+          ref: development
+          token: ${{ secrets.AUTOMATION_TOKEN }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Update the actions and commit
+        run: |
+          node scripts/update-actions.mjs | tee changes.txt
+          [ -s changes.txt ] || exit 0
+          git config user.name "Peter J.H. Slijkhuis"
+          git config user.email "peter@slijkhuis.one"
+          git add .github/workflows
+          git commit -m "Update the workflow actions" -m "$(cat changes.txt)"
+          git push origin HEAD:development

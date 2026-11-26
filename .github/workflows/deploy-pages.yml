@@ -33,6 +33,12 @@ jobs:
           path: .playwright-profile-${{ matrix.browser }}
           key: playwright-profile-${{ matrix.browser }}-${{ hashFiles('engines/manifest.json') }}
 
+      - name: Restore cached Playwright browsers (Firefox alone takes ~3 min to download)
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-browsers-${{ matrix.browser }}-${{ hashFiles('package.json') }}
+
       - name: Install test dependencies
         run: npm install --no-audit --no-fund
 
@@ -62,7 +68,7 @@ jobs:
       cancel-in-progress: false
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment_retry_1.outputs.page_url || steps.deployment_retry_2.outputs.page_url || steps.deployment_retry_3.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
 
@@ -76,6 +82,41 @@ jobs:
         with:
           path: _site
 
+      # GitHub bug (actions/deploy-pages#451): deploy-pages looks the artifact
+      # up once and it may not be listed yet right after the upload, so it
+      # fails with "No artifacts named github-pages". Retry only the deploy:
+      # a second upload would leave two artifacts and fail the lookup too.
+      # Remove the retries once a fixed deploy-pages is released.
       - name: Deploy to GitHub Pages
         id: deployment
+        uses: actions/deploy-pages@v5
+        continue-on-error: true
+
+      - name: Wait before retrying the deploy
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 5
+
+      - name: Deploy to GitHub Pages (retry 1)
+        id: deployment_retry_1
+        if: steps.deployment.outcome == 'failure'
+        uses: actions/deploy-pages@v5
+        continue-on-error: true
+
+      - name: Wait before retrying the deploy
+        if: steps.deployment_retry_1.outcome == 'failure'
+        run: sleep 20
+
+      - name: Deploy to GitHub Pages (retry 2)
+        id: deployment_retry_2
+        if: steps.deployment_retry_1.outcome == 'failure'
+        uses: actions/deploy-pages@v5
+        continue-on-error: true
+
+      - name: Wait before retrying the deploy
+        if: steps.deployment_retry_2.outcome == 'failure'
+        run: sleep 60
+
+      - name: Deploy to GitHub Pages (retry 3)
+        id: deployment_retry_3
+        if: steps.deployment_retry_2.outcome == 'failure'
         uses: actions/deploy-pages@v5

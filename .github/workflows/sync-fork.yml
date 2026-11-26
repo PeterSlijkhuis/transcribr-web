@@ -16,6 +16,9 @@ on:
 
 permissions:
   contents: write
+  # A push made with GITHUB_TOKEN starts no other workflow, so the deploy is
+  # started by hand below; workflow_dispatch is the exception that is allowed.
+  actions: write
 
 jobs:
   sync:
@@ -26,4 +29,10 @@ jobs:
       - name: Sync master with the original repository
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh repo sync "$GITHUB_REPOSITORY" --branch master
+        run: |
+          before=$(gh api "repos/$GITHUB_REPOSITORY/commits/master" --jq .sha)
+          gh repo sync "$GITHUB_REPOSITORY" --branch master
+          after=$(gh api "repos/$GITHUB_REPOSITORY/commits/master" --jq .sha)
+          if [ "$before" != "$after" ]; then
+            gh workflow run deploy-pages.yml --repo "$GITHUB_REPOSITORY" --ref master
+          fi
